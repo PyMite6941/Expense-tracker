@@ -6,15 +6,13 @@ class ExpenseTracker():
         self.filename = filename
 
     def open_file(self) -> list:
-        expense_data = []
-        running = True
         try:
             with open(self.filename, 'r') as file:
                 data = json.load(file)
             return data
         except FileNotFoundError:
             print("File doesn't exist, creating ...")
-            json.dump(self.filename, 'w')
+            json.dump([],self.filename)
             return []
     
     def write_file(self,list:list):
@@ -33,7 +31,7 @@ class ExpenseTracker():
             print(f"\nExpense {count}\n\nPrice: {item['price']}\nPurchased: {item['purchased']}\nDate spent: {item['date']}")
             count += 1
 
-    def view_filtered_expenses(self) -> list:
+    def view_filtered_expenses(self):
         filter_choice = int(input("--- Filter Menu ---\n\n1. By Price\n2. By purchased item\n3. Date\nYour choice:\n> "))
         if filter_choice == 1:
             filter_min_value = float(input("Enter the minimum value:\n> "))
@@ -47,22 +45,25 @@ class ExpenseTracker():
             print("Choose from the above menu")
             return []
         data = self.open_file()
-        results = []
         if filter_choice == 1:
             for item in data:
                 if filter_min_value <= item['price'] <= filter_max_value:
-                    results.append(item)
+                    print(f"\nExpense {count}:\nPrice: {item['price']}\nPurchased: {item['purchased']}\nDate of expense: {item['date']}\n--------\n")
+                    count += 1
         elif filter_choice == 2:
+            count = 1
             for item in data:
                 if filter_item == item['purchased']:
-                    results.append(item)
+                    print(f"\nExpense {count}:\nPrice: {item['price']}\nPurchased: {item['purchased']}\nDate of expense: {item['date']}\n--------\n")
+                    count += 1
         elif filter_choice == 3:
+            count = 1
             for item in data:
                 if filter_min_date <= item['date'] <= filter_max_date:
-                    results.append(item)
-        return results
+                    print(f"\nExpense {count}:\nPrice: {item['price']}\nPurchased: {item['purchased']}\nDate of expense: {item['date']}\n--------\n")
+                    count += 1
 
-    def add_expenses(self,price:float,purchased:str,date=f'{datetime.now().strftime("%Y-%m-%d")}') -> bool:
+    def add_expenses(self,price:float,purchased:str,date=f'{datetime.now().strftime("%Y-%m-%d")}'):
         expense = {
             'price': price,
             'purchased': purchased,
@@ -71,18 +72,15 @@ class ExpenseTracker():
         data = self.open_file()
         data.append(expense)
         self.write_file(data)
-        return True
 
 tracker = ExpenseTracker()
 running = True
 while running:
     choice = int(input("--- Menu ---\n\n1. View total expenses\n2. Filter total expenses\n3. Add expenses\n0. Exit\nYour choice:\n> "))
     if choice == 1:
-        expenses = tracker.view_total_expenses()
-        print(expenses)
+        tracker.view_total_expenses()
     elif choice == 2:
-        filtered_expenses = tracker.view_filtered_expenses()
-        print(filtered_expenses)
+        tracker.view_filtered_expenses()
     elif choice == 3:
         price = float(input("How much was spent?\n> "))
         purchased = input("What was purchased?\n> ")
