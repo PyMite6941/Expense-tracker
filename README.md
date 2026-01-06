@@ -17,4 +17,4 @@ python main.py
 
 ## POSSIBLE ERRORS ##
 If there are packages that need to be installed, use this command to install them
-pip install datetime json
+pip install datetime json requests
