@@ -16,5 +16,5 @@ Finally you are ready to run the file using the following command:
 python main.py
 
 ## POSSIBLE ERRORS ##
-If there are packages that need to be installed, use this command to install them
+If there are packages that need to be installed, use this command to install them:
 pip install datetime json requests
