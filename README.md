@@ -2,6 +2,9 @@
 This is a program that helps keep track of inputted expenses.
 You can filter and view expenses as well using the main.py file.
 
+## IMPORTANT ##
+Read the license for rules about using this program properly.
+
 ## SETUP ##
 First run the virtual environment (venv) setup:
 python -m venv {your_venv_directory_name}
