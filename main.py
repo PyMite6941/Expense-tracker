@@ -143,14 +143,14 @@ running = True
 while running:
     choice = int(input("--- Menu ---\n\n1. View total expenses\n2. Filter total expenses\n3. Add expenses\n4. Edit expenses\n5. Delete expenses\n6. Export expenses to a .csv file\n7. Convert expenses to a different currency\n0. Exit\nYour choice:\n> "))
     if choice == 1:
-        tracker.view_total_expenses()
+        print(tracker.view_total_expenses())
     elif choice == 2:
-        tracker.view_filtered_expenses()
+        print(tracker.view_filtered_expenses())
     elif choice == 3:
         price = float(input("How much was spent?\n> "))
         purchased = input("What was purchased?\n> ")
         currency = str(input("In which currency?\n> "))
-        tracker.add_expenses(price,purchased,currency)
+        print(tracker.add_expenses(price,purchased,currency))
     elif choice == 4:
         print(tracker.edit_expenses())
     elif choice == 5:
