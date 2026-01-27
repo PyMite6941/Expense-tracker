@@ -1,3 +1,5 @@
 .venv
+.claude
 data.txt
 expenses.csv
+program_code.pdf
