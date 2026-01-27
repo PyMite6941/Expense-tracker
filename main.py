@@ -142,7 +142,7 @@ class ExpenseTracker():
 tracker = ExpenseTracker()
 running = True
 while running:
-    choice = int(input("--- Menu ---\n\n1. View total expenses\n2. Filter total expenses\n3. Add expenses\n4. Edit expenses\n5. Delete expenses\n6. Export expenses to a .csv file\n7. Convert expenses to a different currency\n0. Exit\nYour choice:\n> "))
+    choice = int(input("--- Expense Tracker ---\nThis is my APCSP project that manages expenses inputted through lists saved to a .txt file.\nI created this to work well and also be practical.\n\n1. View total expenses\n2. Filter total expenses\n3. Add expenses\n4. Edit expenses\n5. Delete expenses\n6. Export expenses to a .csv file\n7. Convert expenses to a different currency\n0. Exit\nYour choice:\n> "))
     if choice == 1:
         print(tracker.view_total_expenses())
     elif choice == 2:
@@ -163,3 +163,5 @@ while running:
         print(tracker.convert_prices_to_currency(to_currency))
     elif choice == 0:
         running = False
+    else:
+        print("Invalid input. Please input integers from the above menu.")
