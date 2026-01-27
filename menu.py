@@ -71,7 +71,7 @@ class InteractiveMenu:
                     elif key == b'K': return 'left'
                     elif key == b'M': return 'right'
                 elif key == b'\r': return 'enter'
-                elif key == b'\x1b': return 'escape'
+                elif key == b'\x08': return 'backspace'
                 elif key.lower() == b'r': return 'reset'
                 elif key.lower() == b'q': return 'quit'
         elif self._platform == 'unix':
@@ -84,6 +84,7 @@ class InteractiveMenu:
                 elif seq == '[D': return 'left'
                 return 'escape'
             elif ch in ('\r', '\n'): return 'enter'
+            elif ch == '\x7f': return 'backspace'
             elif ch.lower() == 'r': return 'reset'
             elif ch.lower() == 'q': return 'quit'
         return None
@@ -114,7 +115,7 @@ class InteractiveMenu:
         
         # Instructions
         if self.can_navigate:
-            print("Use ↑↓ arrow keys to navigate | ENTER to select | ESC/Q to cancel | R to reset")
+            print("Use ↑↓ arrow keys to navigate | ENTER to select | BACKSPACE/Q to go back | R to reset")
             if self.total_pages > 1:
                 print("Use ←→ arrow keys to change pages")
         else:
@@ -199,7 +200,7 @@ class InteractiveMenu:
                     self._clear_screen()
                     return selected_option
 
-                elif key in ['escape', 'quit']:
+                elif key in ['backspace', 'quit']:
                     self._clear_screen()
                     return None
 

@@ -226,8 +226,10 @@ while running:
 
     if choice == "View total expenses":
         print(format_expenses(tracker.view_total_expenses()))
+        input("Press Enter to continue...")
     elif choice == "Filter total expenses":
         print(format_expenses(tracker.view_filtered_expenses()))
+        input("Press Enter to continue...")
     elif choice == "Add expenses":
         price = float(input("How much was spent?\n> "))
         purchased = input("What was purchased?\n> ")
@@ -238,12 +240,20 @@ while running:
             print("Add cancelled.")
         else:
             print(tracker.add_expenses(price, purchased, currency, notes=notes))
+        input("Press Enter to continue...")
     elif choice == "Edit expenses":
-        print(tracker.edit_expenses())
+        while True:
+            result = tracker.edit_expenses()
+            if "cancelled" in result.lower() or "no expenses" in result.lower():
+                break
     elif choice == "Delete expenses":
-        print(tracker.delete_expenses())
+        while True:
+            result = tracker.delete_expenses()
+            if "cancelled" in result.lower() or "no expenses" in result.lower():
+                break
     elif choice == "Export expenses to CSV":
         print(tracker.export_to_csv())
+        input("Press Enter to continue...")
     elif choice == "Convert currency":
         currency_menu = InteractiveMenu(SUPPORTED_CURRENCIES, title="Convert To")
         to_currency = currency_menu.show()
@@ -251,8 +261,6 @@ while running:
             print("Conversion cancelled.")
         else:
             print(tracker.convert_prices_to_currency(to_currency))
+        input("Press Enter to continue...")
     elif choice == "Exit" or choice is None:
         running = False
-
-    if running:
-        input("Press Enter to continue...")
