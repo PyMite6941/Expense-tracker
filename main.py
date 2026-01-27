@@ -13,7 +13,8 @@ class ExpenseTracker():
             return expenseList
         except FileNotFoundError:
             print("File doesn't exist, creating ...")
-            json.dump([],self.filename)
+            with open(self.filename,'w') as file:
+                json.dump([],file)
             return []
     
     def write_file(self,list:list):
@@ -32,11 +33,11 @@ class ExpenseTracker():
             max_id = max(expense['id'] for expense in totalExpenseList)
             return max_id + 1
 
-    def convert_currency(self,price:float,from_curr:str,to_curr:str) -> str:
+    def convert_currency(self,price:float,from_curr:str,to_curr:str) -> float:
         url = f"https://api.frankfurter.app/latest?from={from_curr}&to={to_curr}"
         response = requests.get(url)
         rate = response.json()['rates'][to_curr]
-        return f"Conversion prive to {to_curr} : {price * rate}"
+        return rate*price
 
     def view_total_expenses(self)-> list:
         expenseList = self.open_file()
@@ -110,15 +111,15 @@ class ExpenseTracker():
             id = int(input("Enter the id of the expense you want to delete:\n> "))
             for expense in expenseList:
                 if expense['id'] == id:
-                    expenseList.pop(expense)
-            self.write_file(expense)
+                    expenseList.remove(expense)
+            self.write_file(expenseList)
             return "Expense deleted successfully."
         except FileNotFoundError:
             return "File not found."
     
     def export_to_csv(self,filename='expenses.csv')-> str:
         expenseList = self.open_file()
-        if not expense in expenseList:
+        if not expenseList:
             return "No expenses to process."
         with open(filename,'w') as file:
             file.write("id,price,purchased,date,currency\n")
@@ -128,7 +129,7 @@ class ExpenseTracker():
 
     def convert_prices_to_currency(self,to_currency:str)-> str:
         expenseList = self.open_file()
-        if not expense in expenseList:
+        if not expenseList:
             return "No expenses to convert."
         for expense in expenseList:
             from_currency = expense['currency']
