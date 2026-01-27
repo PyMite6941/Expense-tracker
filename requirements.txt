@@ -1,2 +1,4 @@
 requests
 colorama
+fpdf2
+pygments
