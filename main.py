@@ -1,3 +1,4 @@
+# Portions of this code were developed with assistance from an AI tool (Claude)
 from datetime import datetime
 import json
 import requests
