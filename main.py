@@ -14,6 +14,7 @@ class ExpenseTracker():
     # Initialize class variables
     def __init__(self,filename='data.txt'):
         self.filename = filename
+        self.currency_symbols = {'usd':'$','eur':'€','gbp':'£','jpy':'¥','cny':'¥','inr':'₹','krw':'₩','thb':'฿','aud':'A$','cad':'C$','chf':'Fr','sgd':'S$','hkd':'HK$','nzd':'NZ$','sek':'kr','nok':'kr','dkk':'kr','rub':'₽','mxn':'Mex$','brl':'R$','zar':'R','czk':'Kč','pln':'zł','huf':'Ft','ron':'lei','bgn':'лв','try':'₺','myr':'RM','php':'₱','idr':'Rp','ils':'₪','isk':'kr','hrk':'kn',}
 
     # Read data file
     def open_file(self) -> list:
@@ -48,6 +49,15 @@ class ExpenseTracker():
         else:
             max_id = max(expense['id'] for expense in expenseList)
             return max_id + 1
+        
+    # Get the currency symbol from self.currency_symbols
+    def get_currency_symbols(self,currency:str) -> str:
+        return self.currency_symbols.get(currency.lower(),currency.upper())
+    
+    # Format a string with the correct price and currency format
+    def format_currency_output(self,price:float,currency:str) -> str:
+        currency_symbol = self.get_currency_symbols(currency)
+        return f"{currency_symbol}{price}"
 
     # Backbone of converting currency function
     def convert_currency(self,price:float,from_curr:str,to_curr:str) -> float:
@@ -83,7 +93,7 @@ class ExpenseTracker():
         table.add_column("Currency",style='red')
         # Iterate through all the expenses
         for expense in expenseList:
-            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],expense['category'],expense['date'],str(expense['currency']).upper())
+            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],str(expense['category']).capitalize(),expense['date'],str(expense['currency']).upper())
         console.print(table)
 
     # View filtered expenses
@@ -116,7 +126,7 @@ class ExpenseTracker():
             filter_item = questionary.text("What was the item purchased?\n> ").ask()
         # If choice is 'category' then as for what category
         elif filter_choice == 'Category':
-            filter_category = questionary.text("What is the category?\n> ").ask()
+            filter_category = questionary.text("What is the category?\n> ").ask().lower()
         # If choice is 'date of purchase' then ask for the date range
         elif filter_choice == 'Date of purchase':
             filter_min_date = questionary.text("Enter the start range (yyyy-mm-dd):\n> ").ask()
@@ -136,7 +146,7 @@ class ExpenseTracker():
         # Loop through all expenses if the filter_choice == 'Category'
         elif filter_choice == 'Category':
             for expense in expenseList:
-                if filter_category == expense['category']:
+                if filter_category == expense['category'].lower():
                     filteredExpenses.append(expense)
         # Loop through all expenses if the filter_choice == 'Date of purchase'
         elif filter_choice == 'Date of purchase':
@@ -153,67 +163,98 @@ class ExpenseTracker():
         table.add_column("Currency",style='red')
         # Iterate through all the expenses
         for expense in filteredExpenses:
-            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],expense['category'],expense['date'],str(expense['currency']).upper())
+            table.add_row(str(expense['id']),f"{self.format_currency_output(expense['price'],expense['currency'])}",expense['purchased'],str(expense['category']).capitalize(),expense['date'],str(expense['currency']).upper())
         console.print(table)
 
     # Add new expenses
-    def add_expenses(self,price:float,purchased:str,category:str,currency:str='usd',date=None)-> str:
-        # Check for date; if not defined find current date and use it
-        if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
-        # Varaibles in the list format
-        expense = {
-            'id': self.assign_id(),
-            'price': price,
-            'purchased': purchased,
-            'category': category,
-            'date': date,
-            'currency': currency.lower(),
-        }
-        # Define the list to process
-        expenseList = self.open_file()
-        expenseList.append(expense)
-        self.write_file(expenseList)
-        return "[bold green]Expense properly added[/bold green]."
+    def add_expenses(self,currency:str='usd',date=None)-> str:
+        try:
+            # Check and validate price
+            price = float(questionary.text("How much was spent?\n> ").ask())
+            if not price < 0:
+                return "[bold yellow]Price must be positive[/bold yellow]."
+            # Check and validate the purchased variable
+            purchased = str(questionary.text("What was purchased?\n> ").ask())
+            if not purchased.strip():
+                return "[bold yellow]Cannot leave item purchased blank[/bold yellow]."
+            # Check the other variables
+            category = str(questionary.text("What category (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
+            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower().strip()
+            date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> "))
+            # Check for date; if not defined find current date and use it
+            if date is None:
+                date = datetime.now().strftime("%Y-%m-%d")
+            # Varaibles in the list format
+            expense = {
+                'id': self.assign_id(),
+                'price': price,
+                'purchased': purchased,
+                'category': category,
+                'date': date,
+                'currency': currency.lower(),
+            }
+            # Define the list to process
+            expenseList = self.open_file()
+            expenseList.append(expense)
+            self.write_file(expenseList)
+            return "[bold green]Expense properly added[/bold green]."
+        except ValueError:
+            return ""
 
     # Edit an expense
     def edit_expenses(self)-> str:
-        # Define the list to process
-        expenseList = self.open_file()
-        # If the expenseList is empty do not continue
-        if not expenseList:
-            return "[bold red]No expenses to process[/bold red]."
-        expense_id = int(questionary.text("Enter the id of the expense you want to edit:\n> ").ask())
-        # Get user input from a questionary menu
-        choice = questionary.select(
-            "What do you want to edit?\nUse arrow keys to navigate",
-            choices=[
-                'Price',
-                'Purchased',
-                'Category',
-                'Date of purchase',
-            ],
-            pointer='>'
-        ).ask()
-        # Set counter to count how many times the expense['id'] is found
-        count = 0
-        # Loop through all of the expenses in the list
-        for expense in expenseList:
-            if expense['id'] == expense_id:
-                count += 1
-                if choice == 'Price':
-                    expense['price'] = float(questionary.text("Enter the new price:\n> ").ask())
-                elif choice =='Purchased':
-                    expense['purchased'] = str(questionary.text("Enter the new purchased item:\n> ").ask())
-                elif choice == 'Category':
-                    expense['category'] = str(questionary.text("Enter the new category:\n> ").ask())
-                elif choice == 'Date of purchase':
-                    expense['date'] = str(questionary.text("Enter the new date (yyyy-mm-dd):\n> ").ask())
-        # If expense not found
-        if count < 1:
-            return "[bold red]Expense not found[/bold red]."
-        self.write_file(expenseList)
-        return "[bold green]Expense edited successfully[/bold green]."
+        try:
+            # Define the list to process
+            expenseList = self.open_file()
+            # If the expenseList is empty do not continue
+            if not expenseList:
+                return "[bold red]No expenses to process[/bold red]."
+            expense_id = int(questionary.text("Enter the id of the expense you want to edit:\n> ").ask())
+            # Get user input from a questionary menu
+            choice = questionary.select(
+                "What do you want to edit?\nUse arrow keys to navigate",
+                choices=[
+                    'Price',
+                    'Purchased',
+                    'Category',
+                    'Date of purchase',
+                    'Currency',
+                ],
+                pointer='>'
+            ).ask()
+            # Set counter to count how many times the expense['id'] is found
+            count = 0
+            # Loop through all of the expenses in the list
+            for expense in expenseList:
+                if expense['id'] == expense_id:
+                    count += 1
+                    # Change the price if choice === 'Price'
+                    if choice == 'Price':
+                        expense['price'] = float(questionary.text("Enter the new price:\n> ").ask())
+                    # Change the item purchased if choice == 'Purchased'
+                    elif choice =='Purchased':
+                        expense['purchased'] = str(questionary.text("Enter the new purchased item:\n> ").ask())
+                    # Change the category of the expense if choice == 'Category'
+                    elif choice == 'Category':
+                        expense['category'] = str(questionary.text("Enter the new category:\n> ").ask())
+                    # Change the date of purchase if choice == 'Date of purchase'
+                    elif choice == 'Date of purchase':
+                        expense['date'] = str(questionary.text("Enter the new date (yyyy-mm-dd):\n> ").ask())
+                    # Change the currency and price if choice == 'Currency'
+                    elif choice == 'Currency':
+                        from_curr = expense['currency']
+                        price = expense['price']
+                        expense['currency'] = str(questionary.text("Enter the currency to change this expense to:\n> ").ask())
+                        expense['price'] = self.convert_currency(price,from_curr,expense['currency'])
+                        if expense['price'] == None:
+                            return f"[bold red]Error converting {from_curr} -> {expense['currency']}[/bold red]."
+            # If expense not found
+            if count < 1:
+                return "[bold red]Expense not found[/bold red]."
+            self.write_file(expenseList)
+            return "[bold green]Expense edited successfully[/bold green]."
+        except ValueError:
+            return "[bold red]Invalid Expense ID[/bold red]."
     
     # Delete an expense
     def delete_expenses(self)-> str:
@@ -236,7 +277,8 @@ class ExpenseTracker():
             expenseList.remove(deleteExpense)
             self.write_file(expenseList)
             return "[bold green]Expense deleted successfully[/bold green]."
-        # If FileNotFound then return
+        except ValueError:
+            return "[bold red]Invalid Expense ID[/bold red]."
         except FileNotFoundError:
             return "[bold red]File not found[/bold red]."
     
@@ -286,25 +328,31 @@ class ExpenseTracker():
         if not expenseList:
             console.print("[bold red]No expenses to process[/bold red].")
             return
+        # Check to make sure that all the expenses are in the same currency
+        currencies = set()
+        for expense in expenseList:
+            currency = expense.get('currency','usd').upper()
+            currencies.add(currency)
+        if len(currencies) > 1:
+            console.print("[bold yellow]Currencies must be the same throughout the expenses for the graph to work[/bold yellow].")
+            return
+        currency = currencies[0]
         # Calculate spending to process in bar graph and save in variables to be referenced later
-        categories = []
         category_totals = {}
         total = 0
         for expense in expenseList:
-            category = expense['category']
-            if not category in categories:
-                categories.append(expense['category'])
+            category = expense.get('category','other')
             total += expense['price']
             # Save the price of the expense in a category under the category name for reference later
             category_totals[category] = category_totals.get(category,0)+expense['price']
         console.print()
-        console.header("--- Expense Bar Graph ---")
+        console.print(Panel("--- Expense Bar Graph ---"))
         # Calculate the bar length given amount of each 
         for category,amount in category_totals.items():
             percent = float((amount/total)*100)
             bar_length = int(percent/2)
             bar = "█"*bar_length
-            console.print(f"{category} : {amount:.2f} ({percent:.2f}%) | {bar}")
+            console.print(f"{category} : {self.format_currency_output(amount,currency)} ({percent:.2f}%) | {bar}")
         console.print(f"Total Expenses : {total:.2f}")
 
 # Initiate needed modules
@@ -338,11 +386,7 @@ while running:
         tracker.view_filtered_expenses()
     # Get the function for adding expenses with the parameters
     elif choice == 'Add expenses':
-        price = float(questionary.text("How much was spent?\n> ").ask())
-        purchased = str(questionary.text("What was purchased?\n> ").ask())
-        category = str(questionary.text("What category (i.e. bills, food, etc) ?\n> ").ask())
-        currency = str(questionary.text("In which currency?\n> ").ask()).lower().strip()
-        console.print(tracker.add_expenses(price,purchased,category,currency))
+        console.print(tracker.add_expenses())
     # Get the function to edit expenses
     elif choice == 'Edit expenses':
         console.print(tracker.edit_expenses())
