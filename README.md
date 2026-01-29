@@ -20,4 +20,4 @@ python main.py
 
 ## POSSIBLE ERRORS ##
 If there are packages that need to be installed, use this command to install them:
-pip install datetime json requests
+pip install datetime json quesitonary requests rich
