@@ -69,16 +69,21 @@ class ExpenseTracker():
     def view_total_expenses(self)-> list:
         # Define and return list
         expenseList = self.open_file()
+        # If expenseList is empty do not continue
+        if not expenseList:
+            console.print("[bold yellow]No expenses found[/bold yellow].")
+            return
         # Create a nice table to display all the expenses found
         table = Table(title="Total Expenses",header_style='blue')
         table.add_column("ID",justify='right',style='cyan')
         table.add_column("Price",style='white')
         table.add_column("Purchased",style='green')
+        table.add_column("Category",style="magenta")
         table.add_column("Date of Purchase",style='blue')
         table.add_column("Currency",style='red')
         # Iterate through all the expenses
         for expense in expenseList:
-            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],expense['date'],str(expense['currency']).upper())
+            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],expense['category'],expense['date'],str(expense['currency']).upper())
         console.print(table)
 
     # View filtered expenses
@@ -87,28 +92,35 @@ class ExpenseTracker():
         expenseList = self.open_file()
         # If expenseList is empty do not continue
         if not expenseList:
-            return "[bold yellow]No expenses found[/bold yellow]."
+            console.print("[bold yellow]No expenses found[/bold yellow].")
+            return
         # Get user input from a questionary menu
         filter_choice = questionary.select(
             "What should be filtered?\nUse arrow keys to navigate",
             choices=[
                 'Price',
                 'Purchased',
+                'Category',
                 'Date of purchase',
             ],
             pointer='>'
         ).ask()
         # If choice is 'price' then ask for minimum and maximum price value
         if filter_choice == 'Price':
-            filter_min_value = float(input("Enter the minimum value:\n> "))
-            filter_max_value = float(input("Enter the maximum value:\n> "))
+            min_value = questionary.text("What is the minimum value?\n> ").ask()
+            max_value = questionary.text("What is the maximum value?\n> ").ask()
+            filter_min_value = float(min_value) if min_value else 0.0
+            filter_max_value = float(max_value) if max_value else filter_min_value+1
         # If choice is 'purchased' then ask for what item
         elif filter_choice == 'Purchased':
-            filter_item = str(input("Enter the item purchased:\n> "))
+            filter_item = questionary.text("What was the item purchased?\n> ").ask()
+        # If choice is 'category' then as for what category
+        elif filter_choice == 'Category':
+            filter_category = questionary.text("What is the category?\n> ").ask()
         # If choice is 'date of purchase' then ask for the date range
         elif filter_choice == 'Date of purchase':
-            filter_min_date = input("Enter the start range (yyyy-mm-dd):\n> ")
-            filter_max_date = input("Enter the end range (yyyy-mm-dd):\n> ")
+            filter_min_date = questionary.text("Enter the start range (yyyy-mm-dd):\n> ").ask()
+            filter_max_date = questionary.text("Enter the end range (yyyy-mm-dd):\n> ").ask()
         # Create filteredExpenses list
         filteredExpenses = []
         # Loop through all expenses if the filter_choice == 'Price'
@@ -121,6 +133,11 @@ class ExpenseTracker():
             for expense in expenseList:
                 if filter_item == expense['purchased']:
                     filteredExpenses.append(expense)
+        # Loop through all expenses if the filter_choice == 'Category'
+        elif filter_choice == 'Category':
+            for expense in expenseList:
+                if filter_category == expense['category']:
+                    filteredExpenses.append(expense)
         # Loop through all expenses if the filter_choice == 'Date of purchase'
         elif filter_choice == 'Date of purchase':
             for expense in expenseList:
@@ -131,15 +148,16 @@ class ExpenseTracker():
         table.add_column("ID",justify='right',style='cyan')
         table.add_column("Price",style='white')
         table.add_column("Purchased",style='green')
+        table.add_column("Category",style='magenta')
         table.add_column("Date of Purchase",style='blue')
         table.add_column("Currency",style='red')
         # Iterate through all the expenses
         for expense in filteredExpenses:
-            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],expense['date'],str(expense['currency']).upper())
+            table.add_row(str(expense['id']),f"{expense['price']:.1f}",expense['purchased'],expense['category'],expense['date'],str(expense['currency']).upper())
         console.print(table)
 
     # Add new expenses
-    def add_expenses(self,price:float,purchased:str,currency:str='usd',date=None)-> str:
+    def add_expenses(self,price:float,purchased:str,category:str,currency:str='usd',date=None)-> str:
         # Check for date; if not defined find current date and use it
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
@@ -148,6 +166,7 @@ class ExpenseTracker():
             'id': self.assign_id(),
             'price': price,
             'purchased': purchased,
+            'category': category,
             'date': date,
             'currency': currency.lower(),
         }
@@ -164,13 +183,14 @@ class ExpenseTracker():
         # If the expenseList is empty do not continue
         if not expenseList:
             return "[bold red]No expenses to process[/bold red]."
-        expense_id = int(input("Enter the id of the expense you want to edit:\n> "))
+        expense_id = int(questionary.text("Enter the id of the expense you want to edit:\n> ").ask())
         # Get user input from a questionary menu
         choice = questionary.select(
             "What do you want to edit?\nUse arrow keys to navigate",
             choices=[
                 'Price',
                 'Purchased',
+                'Category',
                 'Date of purchase',
             ],
             pointer='>'
@@ -182,14 +202,13 @@ class ExpenseTracker():
             if expense['id'] == expense_id:
                 count += 1
                 if choice == 'Price':
-                    new_price = float(input("Enter the new price:\n> "))
-                    expense['price'] = new_price
+                    expense['price'] = float(questionary.text("Enter the new price:\n> ").ask())
                 elif choice =='Purchased':
-                    new_purchased = str(input("Enter the new purchased item:\n> "))
-                    expense['purchased'] = new_purchased
+                    expense['purchased'] = str(questionary.text("Enter the new purchased item:\n> ").ask())
+                elif choice == 'Category':
+                    expense['category'] = str(questionary.text("Enter the new category:\n> ").ask())
                 elif choice == 'Date of purchase':
-                    new_date = str(input("Enter the new date (yyyy-mm-dd):\n> "))
-                    expense['date'] = new_date
+                    expense['date'] = str(questionary.text("Enter the new date (yyyy-mm-dd):\n> ").ask())
         # If expense not found
         if count < 1:
             return "[bold red]Expense not found[/bold red]."
@@ -204,12 +223,12 @@ class ExpenseTracker():
             # If expenseList is empty do not continue
             if not expenseList:
                 return "[bold red]No expenses to process[/bold red]."
-            id = int(input("Enter the id of the expense you want to delete:\n> "))
+            expense_id = int(questionary.text("Enter the id of the expense you want to delete:\n> ").ask())
             deleteExpense = ''
             # Loop through all of the expenses in the list
             for expense in expenseList:
                 # If the expense id matches delete the expenses from the list
-                if expense['id'] == id:
+                if expense['id'] == expense_id:
                     deleteExpense = expense
             # If deleteExpense == '' after the loop then return error
             if deleteExpense == '':
@@ -231,10 +250,10 @@ class ExpenseTracker():
         # Write .csv file using the open() function
         with open(filename,'w') as file:
             # Create headers for the .csv to use
-            file.write("id,price,purchased,date,currency\n")
+            file.write("id,price,purchased,category,date,currency\n")
             # Loop through expenses
             for expense in expenseList:
-                file.write(f"{expense['id']},{expense['price']},{expense['purchased']},{expense['date']},{expense['currency']}\n")
+                file.write(f"{expense['id']},{expense['price']},{expense['purchased']},{expense['category']},{expense['date']},{expense['currency']}\n")
         return "[bold green]Expenses exported successfully[/bold green]."
 
     # Convert expenses to a different currency
@@ -258,6 +277,35 @@ class ExpenseTracker():
             return f"[bold red]Failed to convert {from_currency} -> {to_currency}[/bold red]."
         self.write_file(expenseList)
         return "[bold green]All expenses converted successfully[/bold green]."
+    
+    # Convert data into a graph
+    def show_data_in_graph(self):
+        # Define the list to process
+        expenseList = self.open_file()
+        # If expenseList is empty do not continue
+        if not expenseList:
+            console.print("[bold red]No expenses to process[/bold red].")
+            return
+        # Calculate spending to process in bar graph and save in variables to be referenced later
+        categories = []
+        category_totals = {}
+        total = 0
+        for expense in expenseList:
+            category = expense['category']
+            if not category in categories:
+                categories.append(expense['category'])
+            total += expense['price']
+            # Save the price of the expense in a category under the category name for reference later
+            category_totals[category] = category_totals.get(category,0)+expense['price']
+        console.print()
+        console.header("--- Expense Bar Graph ---")
+        # Calculate the bar length given amount of each 
+        for category,amount in category_totals.items():
+            percent = float((amount/total)*100)
+            bar_length = int(percent/2)
+            bar = "█"*bar_length
+            console.print(f"{category} : {amount:.2f} ({percent:.2f}%) | {bar}")
+        console.print(f"Total Expenses : {total:.2f}")
 
 # Initiate needed modules
 tracker = ExpenseTracker()
@@ -265,7 +313,7 @@ console = Console()
 running = True
 while running:
     # Display a description of my project
-    console.print(Panel("[bold white]This is my APCSP Project, an expense tracker. I wanted (and have) created a project that doesn't just look good for my GitHub it also works for my APCSP project!\nIn this project I learned basic CLI styling as well as list management,making this the best way to learn new information.",title="[bold cyan]--- Expense Tracker ---[/bold cyan]",border_style='blue'))
+    console.print(Panel("[bold white]This is my APCSP Project, an expense tracker. I wanted (and have) created a project that doesn't just look good for my GitHub it also works for my APCSP project!\nIn this project I learned basic CLI styling as well as list management, making this the best way to learn new information.",title="[bold cyan]--- Expense Tracker ---[/bold cyan]",border_style='blue'))
     # Get user input from a questionary menu
     choice = questionary.select(
         "What function do you want to perform?\nUse arrow keys to navigate",
@@ -276,6 +324,7 @@ while running:
             'Edit expenses',
             'Delete expenses',
             'Export expenses to a .csv file',
+            'Show expense data on a bar graph',
             'Convert expenses to a different currency',
             'Exit',
         ],
@@ -289,10 +338,11 @@ while running:
         tracker.view_filtered_expenses()
     # Get the function for adding expenses with the parameters
     elif choice == 'Add expenses':
-        price = float(input("How much was spent?\n> "))
-        purchased = str(input("What was purchased?\n> "))
-        currency = str(input("In which currency?\n> ")).lower().strip()
-        console.print(tracker.add_expenses(price,purchased,currency))
+        price = float(questionary.text("How much was spent?\n> ").ask())
+        purchased = str(questionary.text("What was purchased?\n> ").ask())
+        category = str(questionary.text("What category (i.e. bills, food, etc) ?\n> ").ask())
+        currency = str(questionary.text("In which currency?\n> ").ask()).lower().strip()
+        console.print(tracker.add_expenses(price,purchased,category,currency))
     # Get the function to edit expenses
     elif choice == 'Edit expenses':
         console.print(tracker.edit_expenses())
@@ -302,15 +352,18 @@ while running:
     # Get the function to export the expenses to a .csv
     elif choice == 'Export expenses to a .csv file':
         console.print(tracker.export_to_csv())
+    # Get the function to graph the expense data in the CLI
+    elif choice == 'Show expense data on a bar graph':
+        tracker.show_data_in_graph()
     # Get the function to convert expenses to a different currency
     elif choice == 'Convert expenses to a different currency':
-        to_currency = str(input("Enter the currency you want to convert all expenses to (e.g. USD, EUR):\n> ")).lower().strip()
+        to_currency = str(questionary.text("Enter the currency you want to convert all expenses to (e.g. USD, EUR):\n> ").ask()).lower().strip()
         console.print(tracker.convert_prices_to_currency(to_currency))
     # Get the exit command
     elif choice == 'Exit':
-        print("Goodbye.")
+        console.print("Goodbye.")
         running = False
     # If ctrl+c pressed then exit
     elif choice is None:
-        print("Farewell.")
+        console.print("Farewell.")
         running = False

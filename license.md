@@ -15,4 +15,4 @@ You MAY:
 - Run the program for personal use
 - Use the general concepts to write your own implementation from scratch
 
-Any use of this code requires explicit written permission from the copyright holder.
+Any use of this code requires explicit written permission from the copyright holder, PyMite6941.
