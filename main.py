@@ -171,18 +171,22 @@ class ExpenseTracker():
         try:
             # Check and validate price
             price = float(questionary.text("How much was spent?\n> ").ask())
-            if not price < 0:
+            if not price > 0:
                 return "[bold yellow]Price must be positive[/bold yellow]."
             # Check and validate the purchased variable
             purchased = str(questionary.text("What was purchased?\n> ").ask())
             if not purchased.strip():
-                return "[bold yellow]Cannot leave item purchased blank[/bold yellow]."
+                return "[bold yellow]Cannot leave item purchased empty[/bold yellow]."
             # Check the other variables
             category = str(questionary.text("What category (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
-            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower().strip()
-            date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> "))
+            if not category.strip():
+                category = 'other'
+            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
+            if not currency.strip():
+                currency = 'usd'
+            date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
             # Check for date; if not defined find current date and use it
-            if date is None:
+            if not date:
                 date = datetime.now().strftime("%Y-%m-%d")
             # Varaibles in the list format
             expense = {
@@ -246,7 +250,7 @@ class ExpenseTracker():
                         price = expense['price']
                         expense['currency'] = str(questionary.text("Enter the currency to change this expense to:\n> ").ask())
                         expense['price'] = self.convert_currency(price,from_curr,expense['currency'])
-                        if expense['price'] == None:
+                        if not expense['price']:
                             return f"[bold red]Error converting {from_curr} -> {expense['currency']}[/bold red]."
             # If expense not found
             if count < 1:
@@ -309,7 +313,7 @@ class ExpenseTracker():
             # Loop through the expenseList list
             for expense in expenseList:
                 # Only change the currency if the expense['currency'] doesn't match the to_currency
-                if not expense['currency'] == to_currency:
+                if expense['currency'] != to_currency:
                     from_currency = expense['currency']
                     price_in_new_currency = self.convert_currency(expense['price'],from_currency,to_currency)
                     expense['price'] = round(price_in_new_currency,2)
@@ -328,19 +332,19 @@ class ExpenseTracker():
         if not expenseList:
             console.print("[bold red]No expenses to process[/bold red].")
             return
-        # Check to make sure that all the expenses are in the same currency
-        currencies = set()
-        for expense in expenseList:
-            currency = expense.get('currency','usd').upper()
-            currencies.add(currency)
-        if len(currencies) > 1:
-            console.print("[bold yellow]Currencies must be the same throughout the expenses for the graph to work[/bold yellow].")
-            return
-        currency = currencies[0]
+        # Ask for what currency to graph everything in
+        currency = str(questionary.text("What currency should be displayed (default is 'USD') ?\n> ").ask()).lower()
+        if not currency:
+            currency = 'usd'
         # Calculate spending to process in bar graph and save in variables to be referenced later
         category_totals = {}
         total = 0
+        # Convert all the expenses to one currency and sort prices by category
         for expense in expenseList:
+            expense['price'] = self.convert_currency(expense['price'],expense['currency'],currency)
+            if expense['price'] is None:
+                console.print(f"[bold red]Failed to convert {expense['currency']} -> {currency}[/bold red].")
+                return
             category = expense.get('category','other')
             total += expense['price']
             # Save the price of the expense in a category under the category name for reference later
