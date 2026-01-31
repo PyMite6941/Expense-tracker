@@ -20,4 +20,4 @@ python main.py
 
 ## POSSIBLE ERRORS ##
 If there are packages that need to be installed, use this command to install them:
-pip install datetime json questionary requests rich
+pip install datetime json pillow questionary requests rich
