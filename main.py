@@ -41,7 +41,8 @@ class ExpenseTracker():
     # Assign the id to the expense for better organization
     def assign_id(self) -> int:
         # Define the list to be processed
-        expenseList = self.open_file()
+        data = self.open_file()
+        expenseList = data['expenses']
         # If there aren't any previous expenses then assign '1'
         if len(expenseList) == 0:
             return 1
@@ -78,7 +79,8 @@ class ExpenseTracker():
     # View all expenses
     def view_total_expenses(self)-> list:
         # Define and return list
-        expenseList = self.open_file()
+        data = self.open_file()
+        expenseList = data['expenses']
         # If expenseList is empty do not continue
         if not expenseList:
             console.print("[bold yellow]No expenses found[/bold yellow].")
@@ -100,7 +102,8 @@ class ExpenseTracker():
     # View filtered expenses
     def view_filtered_expenses(self)-> list:
         # Define the list to be processed
-        expenseList = self.open_file()
+        data = self.open_file()
+        expenseList = data['expenses']
         # If expenseList is empty do not continue
         if not expenseList:
             console.print("[bold yellow]No expenses found[/bold yellow].")
@@ -173,16 +176,17 @@ class ExpenseTracker():
         try:
             # Varaibles in the list format
             expense = {
-                'id': self.assign_id(),
-                'price': price,
-                'purchased': purchased,
-                'tags': tags,
-                'date': date,
-                'currency': currency.lower(),
-                'notes': notes,
+                'id':self.assign_id(),
+                'price':price,
+                'purchased':purchased,
+                'tags':tags,
+                'date':date,
+                'currency':currency.lower(),
+                'notes':notes,
             }
             # Define the list to process
-            expenseList = self.open_file()
+            data = self.open_file()
+            expenseList = data['expenses']
             expenseList.append(expense)
             self.write_file(expenseList)
             return "[bold green]Expense properly added[/bold green]."
@@ -193,7 +197,8 @@ class ExpenseTracker():
     def edit_expenses(self)-> str:
         try:
             # Define the list to process
-            expenseList = self.open_file()
+            data = self.open_file()
+            expenseList = data['expenses']
             # If the expenseList is empty do not continue
             if not expenseList:
                 return "[bold red]No expenses to process[/bold red]."
@@ -251,7 +256,8 @@ class ExpenseTracker():
     def delete_expenses(self)-> str:
         try:
             # Define the list to process
-            expenseList = self.open_file()
+            data = self.open_file()
+            expenseList = data['expenses']
             # If expenseList is empty do not continue
             if not expenseList:
                 return "[bold red]No expenses to process[/bold red]."
@@ -274,13 +280,52 @@ class ExpenseTracker():
             return "[bold red]File not found[/bold red]."
         
     # Create a budget
-    def create_budget(self) -> str:
-        budget_data = self.open_file()
+    def create_budget(self,newBudgets:list) -> str:
+        # Define the list to process
+        data = self.open_file()
+        budgetList = []
+        # Loop through all budgets in newBudgets
+        for budget in newBudgets:
+            newBudget = {
+                'category':budget['category'],
+                'amount':budget['amount'],
+            }
+            budgetList.append(newBudget)
+        # Save the budget in the data file
+        data['budget'] = budgetList
+        self.write_file(data)
+        return "[bold green]Budget created successfully[/bold green]."
+
+    # Update budget
+    def update_budget(self) -> str:
+        # Define the list to process
+        data = self.open_file()
+        budgetList = data['budget']
+        category_to_change = str(text("Enter the category to change:\n> ").ask())
+        for budget in budgetList:
+            if budget['category'] == category_to_change:
+                choice = select(
+                    'Which to edit?\nUse arrow keys to navigate.',
+                    choices=[
+                        'Category',
+                        'Amount',
+                    ],
+                    pointer='>',
+                )
+                if choice == 'Category':
+                    newCategory = str(text("Enter the new category:\n> ").ask())
+                    budget['category'] = newCategory
+                elif choice == 'Amount':
+                    newAmount = float(text("Enter the new amount:\n> ").ask())
+                    budget['amount'] = newAmount
+        self.write_file(data)
+        return "[bold green]Updated budget successfully[/bodl green]."
     
     # Export expenses to a .csv file
     def export_to_csv(self,filename='expenses.csv')-> str:
         # Define the list to process
-        expenseList = self.open_file()
+        data = self.open_file()
+        expenseList = data['expenses']
         # If expenseList is empty do no continue
         if not expenseList:
             return "[bold red]No expenses to process[/bold red]."
@@ -296,7 +341,8 @@ class ExpenseTracker():
     # Convert expenses to a different currency
     def convert_prices_to_currency(self,to_currency:str)-> str:
         # Define the list to process
-        expenseList = self.open_file()
+        data = self.open_file()
+        expenseList = data['expenses']
         # If expenseList is empty do not continue
         if not expenseList:
             return "[bold red]No expenses to convert[/bold red]."
@@ -318,7 +364,8 @@ class ExpenseTracker():
     # Convert data into a graph
     def show_data_in_graph(self):
         # Define the list to process
-        expenseList = self.open_file()
+        data = self.open_file()
+        expenseList = data['expenses']
         # If expenseList is empty do not continue
         if not expenseList:
             console.print("[bold red]No expenses to process[/bold red].")
@@ -387,10 +434,12 @@ while running:
         price = float(text("How much was spent?\n> ").ask())
         if not price > 0:
             console.print("[bold yellow]Price must be positive[/bold yellow].")
+            break
         # Check and validate the purchased variable
         purchased = str(text("What was purchased?\n> ").ask())
         if not purchased.strip():
             console.print("[bold yellow]Cannot leave item purchased empty[/bold yellow].")
+            break
         # Check and validate the category
         tags = str(text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
         if not tags.strip():
