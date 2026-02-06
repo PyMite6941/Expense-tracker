@@ -5,6 +5,9 @@ You can filter and view expenses as well using the main.py file.
 ## IMPORTANT ##
 Read the license for rules about using this program properly.
 
+## IMPORTANT FEATURE INSTRUCTIONS ##
+Any files to be processed need to be put in the `files_to_process` directory.
+
 ## SETUP THE CLI INTERFACE APP ##
 
 First run the virtual environment (venv) setup:
