@@ -17,10 +17,27 @@ class ExpenseTracker():
             # Read the file using open() function
             with open(self.filename,'r') as file:
                 data = json.load(file)
+            # If not organized right then organize it right
+            if not isinstance(data,dict):
+                data = {'expenses':[],'income':[],'budget':[]}
+            # If not data list then create it
+            else:
+                if 'expenses' not in data:
+                    data['expenses'] = []
+                if 'income' not in data:
+                    data['income'] = []
+                if 'budget' not in data:
+                    data['budget'] = []
             return {'success':True,'data':data}
-        # If FileNotFound then return empty list
+        # If FileNotFound or JSONDecodeError then return empty list
         except FileNotFoundError:
-            return {'success':False,'message':'Storage file not found'}
+            data = {'expenses':[],'income':[],'budget':[]}
+            self.write_file(data)
+            return {'success':True,'data':data}
+        except json.JSONDecodeError:
+            data = {'expenses':[],'income':[],'budget':[]}
+            self.write_file(data)
+            return {'success':True,'data':data}
     
     # Update data file
     def write_file(self,list:list):
@@ -75,6 +92,8 @@ class ExpenseTracker():
         if not result['success']:
             return {'success':False,'message':'File not found'}
         data = result['data']
+        if not data['expenses']:
+            return {'success':False,'message':'No expenses found.'}
         expenseList = data['expenses']
         # If expenseList is empty do not continue
         if not expenseList:
@@ -82,7 +101,7 @@ class ExpenseTracker():
         return {'success':True,'data':expenseList}
 
     # View filtered expenses
-    def view_filtered_expenses(self,min_value:float=None,max_value:float=None,item:float=None,tags:str=None,min_date:str=None,max_date:str=None) -> list:
+    def view_filtered_expenses(self,search_content:str) -> list:
         # Define the list to be processed
         result = self.open_file()
         if not result['success']:
@@ -92,28 +111,8 @@ class ExpenseTracker():
         # If expenseList is empty do not continue
         if not expenseList:
             return {'success':False,'message':'No expenses found.'}
-        # Create filteredExpenses list
-        filteredExpenses = []
         # Loop through all expenses if the filter pertains to price
-        if min_value != None or max_value != None:
-            for expense in expenseList:
-                if min_value <= expense['price'] <= max_value:
-                    filteredExpenses.append(expense)
-        # Loop through all expenses if the filter_choice == 'Purchased'
-        elif filter_choice == 'Purchased':
-            for expense in expenseList:
-                if item == expense['purchased']:
-                    filteredExpenses.append(expense)
-        # Loop through all expenses if the filter_choice == 'Category'
-        elif filter_choice == 'Tags':
-            for expense in expenseList:
-                if tags == expense['tags'].lower():
-                    filteredExpenses.append(expense)
-        # Loop through all expenses if the filter_choice == 'Date of purchase'
-        elif filter_choice == 'Date of purchase':
-            for expense in expenseList:
-                if min_date <= expense['date'] <= max_date:
-                    filteredExpenses.append(expense)
+        filteredExpenses = [expense for expense in expenseList if search_content]
         return {'success':True,'data':filteredExpenses}
 
     # Add new expenses
@@ -161,19 +160,19 @@ class ExpenseTracker():
                 if expense['id'] == expense_id:
                     count += 1
                     # Change the price if price != None
-                    if price != None:
+                    if price is not None:
                         expense['price'] = price
                     # Change the item purchased if purchased != None
-                    elif purchased != None:
+                    elif purchased is not None:
                         expense['purchased'] = purchased
                     # Change the category of the expense if tags != None
-                    elif tags != None:
+                    elif tags is not None:
                         expense['tags'] = tags
                     # Change the date of purchase if date != None
-                    elif date != None:
+                    elif date is not None:
                         expense['date'] = date
                     # Change the currency and price if currency != None
-                    elif currency != None:
+                    elif currency is not None:
                         from_curr = expense['currency']
                         price = expense['price']
                         expense['currency'] = currency
@@ -186,11 +185,11 @@ class ExpenseTracker():
             # If expense not found
             if count < 1:
                 return {'success':False,'message':'Expense not found.'}
-            self.write_file(expenseList)
+            self.write_file(data)
             return {'success':True,'message':'Expense edited successfully.'}
         except ValueError:
             return {'success':False,'message':'Invalid Expense ID.'}
-    
+
     # Delete an expense
     def delete_expenses(self,expense_id) -> list:
         try:
@@ -228,8 +227,10 @@ class ExpenseTracker():
         if not result['success']:
             return {'success':False,'message':'File not found'}
         data = result['data']
+        if not data['income']:
+            return {'success':False,'message':'No income found.'}
         incomeList = data['income']
-        return incomeList
+        return {'success':True,'data':incomeList}
 
     # View filtered income
     def view_filtered_income(self) -> list:
@@ -265,15 +266,41 @@ class ExpenseTracker():
         return {'success':True,'message':'Income recorded successfully'}
 
     # Edit income data
-    def edit_income(self,) -> list:
-        # Define the list to process
-        result = self.open_file()
-        if not result['success']:
-            return {'success':False,'message':'File not found'}
-        data = result['data']
-        incomeList = data['income']
-        if not incomeList:
-            return {'success':False,'message':'No income to process.'}
+    def edit_income(self,expense_id,price:float=None,purchased:str=None,tags:str=None,date:str=None,currency:str=None,notes:str=None)-> list:
+        try:
+            # Define the list to process
+            result = self.open_file()
+            if not result['success']:
+                return {'success':False,'message':'File not found'}
+            data = result['data']
+            incomeList = data['income']
+            if not incomeList:
+                return {'success':False,'message':'No income to process.'}
+            count = 0
+            for income in incomeList:
+                if income['id'] == expense_id:
+                    count += 1
+                    if price is not None:
+                        income['amount'] = price
+                    elif purchased is not None:
+                        income['source'] = purchased
+                    elif date is not None:
+                        income['date'] = date
+                    elif currency is not None:
+                        from_curr = income['currency']
+                        amount = income['amount']
+                        income['currency'] = currency
+                        income['amount'] = self.convert_currency(amount,from_curr,income['currency'])
+                        if not income['amount']:
+                            return f"[bold red]Error converting {from_curr} -> {income['currency']}[/bold red]."
+                    elif notes is not None:
+                        income['notes'] = notes
+            if count < 1:
+                return {'success':False,'message':'Income not found.'}
+            self.write_file(data)
+            return {'success':True,'message':'Income edited successfully.'}
+        except ValueError:
+            return {'success':False,'message':'Invalid Income ID.'}
         
     # Create a budget
     def create_budget(self,category:str,amount:float) -> list:
@@ -282,7 +309,7 @@ class ExpenseTracker():
         if not result['success']:
             return {'success':False,'message':'File not found'}
         data = result['data']
-        budgetList = []
+        budgetList = data['budget']
         newBudget = {
             'category':category,
             'amount':amount,
@@ -306,9 +333,9 @@ class ExpenseTracker():
         # Use stuff to change the budget
         for budget in budgetList:
             if budget['category'] == budgetCategory:
-                if category != None:
+                if category is not None:
                     budget['category'] = category
-                elif amount != None:
+                elif amount is not None:
                     budget['amount'] = amount
         self.write_file(data)
         return {'success':True,'message':'Edited the budget category successfully.'}
