@@ -339,6 +339,17 @@ class ExpenseTracker():
                     budget['amount'] = amount
         self.write_file(data)
         return {'success':True,'message':'Edited the budget category successfully.'}
+
+    def check_budget_status(self) -> list:
+        data = self.open_file()
+        if not data['success']:
+            return {'success':False,'message':'File not found'}
+        budgetList = data['budget']
+        if not budgetList:
+            return {'success':False,'message':'No budget categories found.'}
+        expenseList = data['expenses']
+        if not expenseList:
+            return {'success':False,'message':'No expenses to process.'}
     
     # View total budget
     def view_all_budget(self) -> list:
