@@ -65,7 +65,7 @@ while running:
         table.add_column("Tags",style="magenta")
         table.add_column("Date of Purchase",style='blue')
         table.add_column("Currency",style='red')
-        table.add_column("Notes",style='orange')
+        table.add_column("Notes",style='blue')
         for expense in result['data']:
             table.add_row(str(expense['id']),str(expense['price']),expense['purchased'],expense['tags'],expense['date'],expense['currency'],expense['notes'])
         console.print(table)
@@ -91,7 +91,7 @@ while running:
         table.add_column("Tags",style="magenta")
         table.add_column("Date of Purchase",style='blue')
         table.add_column("Currency",style='red')
-        table.add_column("Notes",style='orange')
+        table.add_column("Notes",style='blue')
         data = tracker.view_total_expenses()
         if not data['success']:
             console.print(f"[bold red]{data['message']}[/bold red].")
@@ -187,10 +187,71 @@ while running:
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # View total income
     elif choice == 'View total Income':
-        questionary
+        result = tracker.view_income()
+        if not result['success']:
+            console.print(f"[bold red]{result['message']}[/bold red].")
+        incomeList = result['data']
+        if not incomeList:
+            console.print("[bold red]No income data found[/bold red].")
+        table = Table(title="Total Income",header_style='blue')
+        table.add_column("ID",justify='right',style='cyan')
+        table.add_column("Amount",style='white')
+        table.add_column("Source",style='green')
+        table.add_column("Date",style='blue')
+        table.add_column("Currency",style='red')
+        table.add_column("Notes",style='blue')
+        for income in incomeList:
+            table.add_row(str(income['id']),str(income['amount']),income['source'],str(income['date']),str(income['currency']).lower(),str(income['notes']))
+        console.print(table)
     # Filter total income
     elif choice == 'Filter total Income':
-        questionary
+        choice = questionary.checkbox(
+            "What should be filtered?\nUse [space] to select options and [enter] to confirm your choice.",
+            choices=[
+                'Amount',
+                'Source',
+                'Tags',
+                'Date',
+                'Currency',
+                'Notes',
+            ],
+        ).ask()
+        if 'Amount' in choice:
+            price = float(questionary.text("How much was earned?\n> ").ask())
+        if 'Source' in choice:
+            purchased = str(questionary.text("What was the source?\n> ").ask())
+        if 'Tags' in choice:
+            tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
+            if not tags.strip():
+                tags = 'other'
+        if 'Currency' in choice:
+            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
+            if not currency.strip():
+                currency = 'usd'
+        if 'Date' in choice:
+            date = str(questionary.text("What is the date (default is the current date) ?\n> ").ask())
+            if not date:
+                date = datetime.now().strftime("%Y-%m-%d")
+        if 'Notes' in choice:
+            notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
+            if not notes.strip():
+                notes = None
+        result = tracker.view_filtered_income(price=price if 'Price' in choice else None,purchased=purchased if 'Purchased' in choice else None,tags=tags if 'Category' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date of Purchase' in choice else None,notes=notes if 'Notes' in choice else None)
+        if not result['success']:
+            console.print(f"[bold red]{result['message']}[/bold red].")
+        incomeList = result['data']
+        if not incomeList:
+            console.print("[bold red]No income data found[/bold red].")
+        table = Table(title="Filtered Income",header_style='blue')
+        table.add_column("ID",justify='right',style='cyan')
+        table.add_column("Amount",style='white')
+        table.add_column("Source",style='green')
+        table.add_column("Date",style='blue')
+        table.add_column("Currency",style='red')
+        table.add_column("Notes",style='blue')
+        for income in incomeList:
+            table.add_row(str(income['id']),str(income['amount']),income['source'],str(income['date']),str(income['currency']).lower(),str(income['notes']))
+        console.print(table)
     # Add new income
     elif choice == 'Add Income':
         # Loop through the add expenses stuff for amount of expenses desired to be created
@@ -239,7 +300,7 @@ while running:
             console.print(f"[bold {color}]{result['message']}[/bold {color}].\n")
     # Get the function to edit the budgets
     elif choice == 'Edit budget':
-        result = tracker.edit_budget()
+        result = tracker.update_budget()
     # Get the function to export the expenses to a .csv
     elif choice == 'Export expenses to a .csv file':
         filename = str(questionary.text("What is the desired file name (default is expenses.csv) ?\n> ").ask())
@@ -254,7 +315,11 @@ while running:
             ],
             pointer='>',
         ).ask()
-        data = tracker.open_file()
+        results = tracker.open_file()
+        if not results['success']:
+            console.print(f"[bold red]{results['message']}[/bold red].")
+            break
+        data = results['data']
         if choice == 'Expenses':
             result = tracker.export_to_csv(data['expenses'],filename)
         elif choice == 'Income':
@@ -264,6 +329,8 @@ while running:
     # Get the function to calculate taxes
     elif choice == 'Calculate Taxes':
         result = tracker.calculate_taxes()
+        if not result['success']:
+            console.print(f"[bold red]{result['message']}[/bold red].")
     # Get the function to graph the expense data in the CLI
     elif choice == 'Show expense data on a bar graph':
         result = graph(tracker.show_data_in_graph())

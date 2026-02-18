@@ -38,4 +38,4 @@ streamlit run streamlit_app.py
 
 ## POSSIBLE ERRORS ##
 If there are packages that need to be installed, use this command to install them:
-pip install datetime json pandas pillow questionary requests rich streamlit
+pip install -r requirements.txt
