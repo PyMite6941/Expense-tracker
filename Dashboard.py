@@ -1,5 +1,9 @@
+# For the web ui setup
 import streamlit as st
+# For the web ui graphs / charts
+import plotly.express as px
 
+# Get the class to use
 from core_stuff import ExpenseTracker
 
 # If class obj not in session state then import
@@ -20,5 +24,11 @@ if 'budget' not in st.session_state:
 
 st.title('Web-based Expense and Income Tracking')
 
-st.button('View Total Expenses')
-st.button('View Total Income')
+st.metric("Total Expenses","100","$1452")
+st.metric("Total Income","200","$2314")
+
+pie_fig = px.pie(st.session_state.expenses,title='Total Expenses')
+pie_fig.show()
+
+with st.form('form'):
+    st.form_submit_button('Save Data')

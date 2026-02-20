@@ -3,14 +3,19 @@ import questionary
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+# For the CLI graphs / charts
+import plotext as plt
 
 from datetime import datetime
 
 # Import data from the core python file
 from core_stuff import ExpenseTracker
 
-def graph(valueList:list) -> str:
-    data = 1
+def show_data_in_bar_graph(array:list,title:str) -> list:
+    # Graph data in a bar chart
+    plt.bar(array)
+    plt.title(title)
+    plt.show()
 
 # Initiate needed modules
 tracker = ExpenseTracker()
@@ -40,10 +45,11 @@ while running:
             questionary.Choice('Create a budget'),
             questionary.Choice('Edit budget'),
             questionary.Separator('--- Cool Functions ---'),
-            questionary.Choice('Export expenses to a .csv file'),
+            questionary.Choice('Import data from a .csv file'),
+            questionary.Choice('Export data to a .csv file'),
             questionary.Choice('Calculate Taxes'),
-            questionary.Choice('Show expense data on a bar graph'),
-            questionary.Choice('Convert expenses to a different currency'),
+            questionary.Choice('Show data on graphs and charts'),
+            questionary.Choice('Convert money to a different currency'),
             questionary.Choice('Exit'),
         ],
         pointer='>'
@@ -53,10 +59,10 @@ while running:
         result = tracker.view_total_expenses()
         if not result['success']:
             console.print(f"[bold red]{result['message']}[/bold red].")
-            break
+            continue
         if not result['data']:
             console.print(f"[bold red]Data not found[/bold red].")
-            break
+            continue
         # Create a table to put data into
         table = Table(title="Total Expenses",header_style='blue')
         table.add_column("ID",justify='right',style='cyan')
@@ -69,7 +75,6 @@ while running:
         for expense in result['data']:
             table.add_row(str(expense['id']),str(expense['price']),expense['purchased'],expense['tags'],expense['date'],expense['currency'],expense['notes'])
         console.print(table)
-
     # Get the function for filtering total expenses
     elif choice == 'Filter total expenses':
         filter_choice = questionary.checkbox(
@@ -83,6 +88,34 @@ while running:
                 'Notes',
             ],
         ).ask()
+        if 'Price' in filter_choice:
+            price = float(questionary.text("How much was spent?\n> ").ask())
+        if 'Purchased' in filter_choice:
+            purchased = str(questionary.text("What was purchased?\n> ").ask())
+        if 'Category' in filter_choice:
+            tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
+            if not tags.strip():
+                tags = 'other'
+        if 'Currency' in filter_choice:
+            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
+            if not currency.strip():
+                currency = 'usd'
+        if 'Date of Purchase' in filter_choice:
+            date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
+            if not date:
+                date = datetime.now().strftime("%Y-%m-%d")
+        if 'Notes' in filter_choice:
+            notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
+            if not notes.strip():
+                notes = None
+        result = tracker.view_filtered_expenses(price=price if 'Price' in filter_choice else None,purchased=purchased if 'Purchased' in filter_choice else None,tags=tags if 'Category' in filter_choice else None,currency=currency if 'Currency' in filter_choice else None,date=date if 'Date of Purchase' in filter_choice else None,notes=notes if 'Notes' in filter_choice else None)
+        if not result['success']:
+            console.print(f"[bold red]{result['message']}[/bold red].")
+            continue
+        data = result['data']
+        if not data['expenses']:
+            console.print(f"[bold red]Data not found[/bold red].")
+            continue
         # Create a table to put data into
         table = Table(title="Total Expenses",header_style='blue')
         table.add_column("ID",justify='right',style='cyan')
@@ -93,13 +126,6 @@ while running:
         table.add_column("Currency",style='red')
         table.add_column("Notes",style='blue')
         data = tracker.view_total_expenses()
-        if not data['success']:
-            console.print(f"[bold red]{data['message']}[/bold red].")
-            break
-        if not data['data']:
-            console.print(f"[bold red]Data not found[/bold red].")
-            break
-        result = tracker.view_filtered_expenses(data['data'])
         # If data successfully retrieved
         if result['success']:
             # Loop through data and organize it
@@ -117,12 +143,12 @@ while running:
             price = float(questionary.text("How much was spent?\n> ").ask())
             if not price > 0:
                 console.print("[bold yellow]Price must be positive[/bold yellow].")
-                break
+                continue
             # Check and validate the purchased variable
             purchased = str(questionary.text("What was purchased?\n> ").ask())
             if not purchased.strip():
                 console.print("[bold yellow]Cannot leave item purchased empty[/bold yellow].")
-                break
+                continue
             # Check and validate the category
             tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
             if not tags.strip():
@@ -155,28 +181,30 @@ while running:
                 'Currency',
                 'Notes',
             ],
+            pointer='>',
         ).ask()
+        price,purchased,tags,currency,date,notes = None,None,None,None,None,None
         if 'Price' in choice:
             price = float(questionary.text("How much was spent?\n> ").ask())
-        elif 'Purchased' in choice:
+        if 'Purchased' in choice:
             purchased = str(questionary.text("What was purchased?\n> ").ask())
-        elif 'Category' in choice:
+        if 'Category' in choice:
             tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
             if not tags.strip():
                 tags = 'other'
-        elif 'Currency' in choice:
+        if 'Currency' in choice:
             currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
             if not currency.strip():
                 currency = 'usd'
-        elif 'Date of Purchase' in choice:
+        if 'Date of Purchase' in choice:
             date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
             if not date:
                 date = datetime.now().strftime("%Y-%m-%d")
-        elif 'Notes' in choice:
+        if 'Notes' in choice:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
                 notes = None
-        result = tracker.edit_expenses(price=price if 'Price' in choice else None,purchased=purchased if 'Purchased' in choice else None,tags=tags if 'Category' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date of Purchase' in choice else None,notes=notes if 'Notes' in choice else None)
+        result = tracker.edit_expenses(expense_id,price=price if 'Price' in choice else None,purchased=purchased if 'Purchased' in choice else None,tags=tags if 'Category' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date of Purchase' in choice else None,notes=notes if 'Notes' in choice else None)
         color = 'green' if result['success'] else 'red'
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # Get the function to delete expenses
@@ -190,9 +218,11 @@ while running:
         result = tracker.view_income()
         if not result['success']:
             console.print(f"[bold red]{result['message']}[/bold red].")
+            continue
         incomeList = result['data']
         if not incomeList:
             console.print("[bold red]No income data found[/bold red].")
+            continue
         table = Table(title="Total Income",header_style='blue')
         table.add_column("ID",justify='right',style='cyan')
         table.add_column("Amount",style='white')
@@ -217,9 +247,9 @@ while running:
             ],
         ).ask()
         if 'Amount' in choice:
-            price = float(questionary.text("How much was earned?\n> ").ask())
+            amount = float(questionary.text("How much was earned?\n> ").ask())
         if 'Source' in choice:
-            purchased = str(questionary.text("What was the source?\n> ").ask())
+            source = str(questionary.text("What was the source?\n> ").ask())
         if 'Tags' in choice:
             tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
             if not tags.strip():
@@ -236,7 +266,7 @@ while running:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
                 notes = None
-        result = tracker.view_filtered_income(price=price if 'Price' in choice else None,purchased=purchased if 'Purchased' in choice else None,tags=tags if 'Category' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date of Purchase' in choice else None,notes=notes if 'Notes' in choice else None)
+        result = tracker.view_filtered_income(amount=amount if 'Amount' in choice else None,source=source if 'Source' in choice else None,tags=tags if 'Tags' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date' in choice else None,notes=notes if 'Notes' in choice else None)
         if not result['success']:
             console.print(f"[bold red]{result['message']}[/bold red].")
         incomeList = result['data']
@@ -258,15 +288,14 @@ while running:
         amount_of_expenses = int(questionary.text("How many expenses do you want to add?\n> ").ask())
         for _ in range(amount_of_expenses):
             # Check and validate amount
-            amount = float(questionary.text("How much was spent?\n> ").ask())
+            amount = float(questionary.text("How much was earned?\n> ").ask())
             if not amount > 0:
                 console.print("[bold yellow]Income must be positive[/bold yellow].")
-                break
+                continue
             # Check and validate the source
-            source = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
+            source = str(questionary.text("Where did the money come from (i.e. work, gift, etc; default is 'job') ?\n> ").ask())
             if not source.strip():
-                console.print("[bold yellow]Cannot leave source of income empty[/bold yellow].")
-                break
+                source = 'job'
             # Check and validate the currency
             currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
             if not currency.strip():
@@ -283,7 +312,40 @@ while running:
             console.print(f"[bold green]{result['message']}[/bold green].")
     # Edit income
     elif choice == 'Edit Income':
-        console.print(tracker.edit_income())
+        expense_id = int(questionary.text("What ID should be edited?\n> ").ask())
+        choice = questionary.checkbox(
+            "What should be filtered?\nUse [space] to select options and [enter] to confirm your choice.",
+            choices=[
+                'Amount',
+                'Source',
+                'Tags',
+                'Date',
+                'Currency',
+                'Notes',
+            ],
+        ).ask()
+        amount,source,tags,currency,date,notes = None,None,None,None,None,None
+        if 'Amount' in choice:
+            amount = float(questionary.text("How much was earned?\n> ").ask())
+        if 'Source' in choice:
+            source = str(questionary.text("What was the source?\n> ").ask())
+        if 'Tags' in choice:
+            tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
+            if not tags.strip():
+                tags = 'other'
+        if 'Currency' in choice:
+            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
+            if not currency.strip():
+                currency = 'usd'
+        if 'Date' in choice:
+            date = str(questionary.text("What is the date (default is the current date) ?\n> ").ask())
+            if not date:
+                date = datetime.now().strftime("%Y-%m-%d")
+        if 'Notes' in choice:
+            notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
+            if not notes.strip():
+                notes = None
+        result = tracker.edit_income(expense_id,amount if amount is not None else None,source if source is not None else None,tags if tags is not None else None,date if date is not None else None,currency if currency is not None else None,notes if notes is not None else None)
     # Delete income
     elif choice == 'Delete Income':
         result = tracker.delete_income()
@@ -300,9 +362,31 @@ while running:
             console.print(f"[bold {color}]{result['message']}[/bold {color}].\n")
     # Get the function to edit the budgets
     elif choice == 'Edit budget':
-        result = tracker.update_budget()
+        budgetCategory = str(questionary.text("What category should be edited?\n> ").ask())
+        newAmount = str(questionary.text("What is the new amount for the budget?\n> ").ask())
+        result = tracker.update_budget(budgetCategory,newAmount)
+        color = 'green' if result['success'] else 'red'
+        console.print(f"[bold {color}]{result['message']}[/bold {color}].")
+    # Get the function to import expenses from a .csv file
+    elif choice == 'Import data from a .csv file':
+        filename = str(questionary.text("What is the file name (including .csv) ?\n> ").ask())
+        choice = questionary.select(
+            "What should be imported?",
+            instructions="Use arrow keys to navigate.",
+            choices=[
+                'Expenses',
+                'Income'
+            ],
+            pointer='>',
+        ).ask()
+        if choice == 'Expenses':
+            result = tracker.import_from_csv('expenses',filename)
+        elif choice == 'Income':
+            result = tracker.import_from_csv('income',filename)
+        color = 'green' if result['success'] else 'red'
+        console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # Get the function to export the expenses to a .csv
-    elif choice == 'Export expenses to a .csv file':
+    elif choice == 'Export data to a .csv file':
         filename = str(questionary.text("What is the desired file name (default is expenses.csv) ?\n> ").ask())
         if not filename.strip():
             filename = 'expenses'
@@ -318,12 +402,12 @@ while running:
         results = tracker.open_file()
         if not results['success']:
             console.print(f"[bold red]{results['message']}[/bold red].")
-            break
+            continue
         data = results['data']
         if choice == 'Expenses':
-            result = tracker.export_to_csv(data['expenses'],filename)
+            result = tracker.export_to_csv('expenses',filename)
         elif choice == 'Income':
-            result = tracker.export_to_csv(data['income'],filename)
+            result = tracker.export_to_csv('income',filename)
         color = 'green' if result['success'] else 'red'
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # Get the function to calculate taxes
@@ -332,10 +416,26 @@ while running:
         if not result['success']:
             console.print(f"[bold red]{result['message']}[/bold red].")
     # Get the function to graph the expense data in the CLI
-    elif choice == 'Show expense data on a bar graph':
-        result = graph(tracker.show_data_in_graph())
+    elif choice == 'Show data on graphs and charts':
+        result = tracker.open_file()
+        if not result['success']:
+            console.print(f"[bold red]{result['message']}[/bold red].")
+        data = result['data']
+        choice = questionary.select(
+            "What should be exported?",
+            instructions="Use arrow keys to navigate.",
+            choices=[
+                'Expenses',
+                'Income'
+            ],
+            pointer='>',
+        ).ask()
+        if choice == 'Expenses':
+            show_data_in_bar_graph(tracker.show_data_in_bar_graph('expenses'),title='Expenses')
+        elif choice == 'Income':
+            show_data_in_bar_graph(tracker.show_data_in_bar_graph('income'),title='Income')
     # Get the function to convert expenses to a different currency
-    elif choice == 'Convert expenses to a different currency':
+    elif choice == 'Convert money to a different currency':
         to_currency = str(questionary.text("Enter the currency you want to convert all expenses to (e.g. USD, EUR):\n> ").ask()).lower().strip()
         result = tracker.convert_prices_to_currency(to_currency)
         color = 'green' if result['success'] else 'red'
