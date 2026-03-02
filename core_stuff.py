@@ -383,6 +383,7 @@ class ExpenseTracker():
         df.to_csv(filename,index=False)
         return {'success':True,'message':f'Wrote {listName} to .csv'}
 
+    # Calculate total taxes
     def calculate_taxes(self) -> list:
         # Define the list to process
         result = self.open_file()

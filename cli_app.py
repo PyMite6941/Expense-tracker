@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich.table import Table
 # For the CLI graphs / charts
 import plotext as plt
-
+# For the date inputs
 from datetime import datetime
 
 # Import data from the core python file
@@ -103,7 +103,7 @@ while running:
         if 'Date of Purchase' in filter_choice:
             date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
             if not date:
-                date = datetime.now().strftime("%Y-%m-%d")
+                date = str(datetime.now().strftime("%Y-%m-%d"))
         if 'Notes' in filter_choice:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
@@ -160,7 +160,7 @@ while running:
             # Check and validate the date
             date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
             if not date:
-                date = None
+                date = str(datetime.now().strftime("%Y-%m-%d"))
             # Get notes if any
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
@@ -199,7 +199,7 @@ while running:
         if 'Date of Purchase' in choice:
             date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
             if not date:
-                date = datetime.now().strftime("%Y-%m-%d")
+                date = str(datetime.now().strftime("%Y-%m-%d"))
         if 'Notes' in choice:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
@@ -261,7 +261,7 @@ while running:
         if 'Date' in choice:
             date = str(questionary.text("What is the date (default is the current date) ?\n> ").ask())
             if not date:
-                date = datetime.now().strftime("%Y-%m-%d")
+                date = str(datetime.now().strftime("%Y-%m-%d"))
         if 'Notes' in choice:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
@@ -303,7 +303,7 @@ while running:
             # Check and validate the date
             date = str(questionary.text("What is the date of purchase (default is the current date) ?\n> ").ask())
             if not date:
-                date = None
+                date = str(datetime.now().strftime("%Y-%m-%d"))
             # Get notes if any
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
@@ -340,7 +340,7 @@ while running:
         if 'Date' in choice:
             date = str(questionary.text("What is the date (default is the current date) ?\n> ").ask())
             if not date:
-                date = datetime.now().strftime("%Y-%m-%d")
+                date = str(datetime.now().strftime("%Y-%m-%d"))
         if 'Notes' in choice:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
@@ -375,7 +375,7 @@ while running:
             instructions="Use arrow keys to navigate.",
             choices=[
                 'Expenses',
-                'Income'
+                'Income',
             ],
             pointer='>',
         ).ask()
@@ -395,7 +395,7 @@ while running:
             instructions="Use arrow keys to navigate.",
             choices=[
                 'Expenses',
-                'Income'
+                'Income',
             ],
             pointer='>',
         ).ask()
