@@ -15,7 +15,7 @@ st.title('View All Data in Graphs')
 st.subheader('Expenses')
 if st.session_state.expenses:
     st.session_state.expenses_df = pd.DataFrame(st.session_state.expenses)
-    st.line_chart(st.session_state.expenses_df,x='date',y='amount')
+    st.line_chart(st.session_state.expenses_df,x='date',y='price')
 st.write('')
 st.subheader('Income')
 if st.session_state.income:

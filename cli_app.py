@@ -357,7 +357,10 @@ while running:
         for _ in range(amount_of_budgets):
             category = str(questionary.text("What category should be budgeted?\n> ").ask())
             amount = str(questionary.text("How much should be budgeted?\n> ").ask())
-            result = tracker.create_budget(category,amount)
+            currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
+            if not currency.strip():
+                currency = 'usd'
+            result = tracker.create_budget(category,amount,currency)
             color = 'green' if result['success'] else 'red'
             console.print(f"[bold {color}]{result['message']}[/bold {color}].\n")
     # Get the function to edit the budgets

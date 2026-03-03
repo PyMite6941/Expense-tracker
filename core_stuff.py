@@ -292,7 +292,7 @@ class ExpenseTracker():
             return {'success':False,'message':'Invalid Income ID'}
         
     # Create a budget
-    def create_budget(self,category:str,amount:float) -> list:
+    def create_budget(self,category:str,amount:float,currency:str='usd') -> list:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -300,6 +300,7 @@ class ExpenseTracker():
         newBudget = {
             'category':category,
             'amount':amount,
+            'currency':currency,
         }
         budgetList.append(newBudget)
         # Save the budget in the data file

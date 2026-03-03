@@ -21,6 +21,8 @@ def init_st():
     if 'budget' not in st.session_state:
         results = st.session_state.tracker.view_all_budget()
         st.session_state.budget = results['data'] if results['success'] else []
+    if 'selected_for_deletion' not in st.session_state:
+        st.session_state.selected_for_deletion = []
 
 # Refresh the data in the session state
 def sync_data():

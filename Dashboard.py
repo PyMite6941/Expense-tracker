@@ -10,12 +10,11 @@ init_st()
 
 st.title('Web-based Expense and Income Tracking')
 
-st.metric("Total Expenses","","$"+str(st.session_state.total_expenses))
-st.metric("Total Income","","$"+str(st.session_state.total_income))
-
-pie_fig = px.pie(st.session_state.expenses_df,title='Total Expenses')
-st.plotly_chart(pie_fig)
-
-with st.form('form'):
-    st.form_submit_button('Save Data')
-    sync_data()
+if st.session_state.expenses:
+    st.metric('Monthly Earnings',f"{st.session_state.monthly_earnings:.2f} USD")
+else:
+    st.write("No expenses found.")
+if st.session_state.income:
+    st.metric('Monthly Income',f"{st.session_state.monthly_income:.2f} USD")
+else:
+    st.write("No income found.")

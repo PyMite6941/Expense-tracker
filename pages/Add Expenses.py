@@ -24,5 +24,6 @@ with st.form('add_expenses_form'):
         if results['success']:
             st.success(results['message'])
             sync_data()
+            st.rerun()
         else:
             st.error(results['message'])
