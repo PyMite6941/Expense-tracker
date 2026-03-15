@@ -384,21 +384,6 @@ class ExpenseTracker():
         df.to_csv(filename,index=False)
         return {'success':True,'message':f'Wrote {listName} to .csv'}
 
-    # Calculate total taxes
-    def calculate_taxes(self) -> list:
-        # Define the list to process
-        result = self.open_file()
-        data = result['data']
-        expenseList = data['expenses']
-        if not expenseList:
-            return {'success':False,'message':'No expenses to process'}
-        totalTaxes = 0
-        for expense in expenseList:
-            price = expense['price']
-            tax = price*0.07
-            totalTaxes += tax
-        return {'success':True,'data':totalTaxes}
-
     # Convert expenses to a different currency
     def convert_prices_to_currency(self,to_currency:str) -> list:
         # Define the list to process
@@ -419,6 +404,47 @@ class ExpenseTracker():
                     expense['currency'] = to_currency.lower()
         # If price_in_new_currency returns 'None' (implying an error) then stop and return error statement
         except TypeError:
-            return {'success':False,'message':f'Failed to convert {from_currency} -> {to_currency}'}
+            return {'success':False,'message':f'Failed to convert {from_currency.upper()} -> {to_currency.upper()}'}
         self.write_file(data)
-        return {'success':True,'message':f'Successfully converted {from_currency} -> {to_currency}'}
+        return {'success':True,'message':f'Successfully converted {from_currency.upper()} -> {to_currency.upper()}'}
+    
+class TaxCalculator:
+    def __init__(self,income,expenses):
+        self.income = income
+        self.expenses = expenses
+        self.income_tax_values = [(11600,0.10),(47150,0.12),(100525,0.22)]
+        self.expense_tax_values = [(11600,0.01),(47150,0.03),(100525,0.13)]
+
+    # Calculate income tax based off of income tax values
+    def get_income_tax_value(self):
+        total_income = 0
+        # Get total amount of income
+        for item in self.income:
+            total_income += item['amount']
+        for i in range(len(self.income_tax_values)):
+            # If income is greater than the i[1] value but less than the i+1[1] value
+            if total_income > self.income_tax_values[i][0] and total_income < self.income_tax_values[i+1][0]:
+                return {'success':True,'result':total_income*self.income_tax_values[i][1]}
+            # If income is greater than the last value in the list
+            elif total_income > self.income_tax_values[len(self.income_tax_values)-1][0]:
+                return {'success':True,'result':total_income*self.income_tax_values[len(self.income_tax_values)-1][1]}
+            # Otherwise considered non-taxable
+            else:
+                return {'success':False,'message':'No taxable income found'}
+            
+    # Calculate expense task based off of expense tax values
+    def get_expense_tax_value(self):
+        total_expenses = 0
+        # Get total amount of expenses
+        for item in self.expenses:
+            total_expenses += item['price']
+        for i in range(len(self.expense_tax_values)):
+            # If expenses are greater than i[1] value but less than i+1[1] value
+            if total_expenses > self.expense_tax_values[i][0] and total_expenses < self.expense_tax_values[i+1][0]:
+                return {'success':True,'result':total_expenses*self.expense_tax_values[i][1]}
+            # If expenses are greater than the last value in the list
+            elif total_expenses > self.expense_tax_values[len(self.expense_tax_values)-1][0]:
+                return {'success':True,'result':total_expenses*self.expense_tax_values[len(self.expense_tax_values-1)][1]}
+            # Otherwise considered non-taxable
+            else:
+                return {'success':False,'message':'No taxable expenses found'}
