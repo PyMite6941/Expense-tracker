@@ -10,6 +10,8 @@ init_st()
 
 st.title('View Income')
 search = st.text_input("Search income ...","")
+if not st.session_state.income:
+    st.write("No income found. Add income to get started.")
 if search:
     income = [income for income in st.session_state.income if search.lower() in income['category'].lower() or search.lower() in income['notes'].lower()]
 else:
@@ -27,4 +29,4 @@ if income:
             st.write(f"{income_item['notes'] if income_item['notes'] else ''}")
         st.divider()
 else:
-    st.write("No income found. Add income to get started.")
+    st.write(f"No income found using search term '{search}'.")

@@ -10,6 +10,8 @@ init_st()
 
 st.title('View Expenses')
 search = st.text_input("Search expenses ...","")
+if not st.session_state.expenses:
+    st.write("No expenses found. Add expenses to get started.")
 if search:
     expenses = [expense for expense in st.session_state.expenses if search.lower() in expense['tags'].lower() or search.lower() in expense['notes'].lower()]
 else:
@@ -27,4 +29,4 @@ if expenses:
             st.write(f"{expense['notes'] if expense['notes'] else ''}")
         st.divider()
 else:
-    st.write("No expenses found. Add expenses to get started.")
+    st.write(f"No expenses found using search term '{search}'.")
