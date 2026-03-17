@@ -12,16 +12,19 @@ init_st()
 
 st.title('View All Data in Graphs')
 
+# Show expenses
 st.subheader('Expenses')
 if st.session_state.expenses:
     st.session_state.expenses_df = pd.DataFrame(st.session_state.expenses)
     st.line_chart(st.session_state.expenses_df,x='date',y='price')
 st.write('')
+# Show income
 st.subheader('Income')
 if st.session_state.income:
     st.session_state.income_df = pd.DataFrame(st.session_state.income)
     st.line_chart(st.session_state.income_df,x='date',y='amount')
 st.write('')
+# Show budget
 st.subheader('Budget')
 if st.session_state.budget:
     st.session_state.budget_df = pd.DataFrame(st.session_state.budget)

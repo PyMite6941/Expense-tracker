@@ -382,7 +382,7 @@ class ExpenseTracker():
         # Write .csv file
         df = pd.DataFrame(listToProcess)
         df.to_csv(filename,index=False)
-        return {'success':True,'message':f'Wrote {listName} to .csv'}
+        return {'success':True,'message':f'Wrote {listName} to .csv','data':df}
 
     # Convert expenses to a different currency
     def convert_prices_to_currency(self,to_currency:str) -> list:

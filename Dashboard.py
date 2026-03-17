@@ -4,7 +4,7 @@ import streamlit as st
 import plotly.express as px
 
 # Initialize the session states
-from streamlit_setup import init_st,sync_data,sum_of_all_categories
+from streamlit_setup import init_st,sum_of_all_categories
 
 # Initialize the streamlit variables
 init_st()
@@ -41,7 +41,3 @@ for item in st.session_state.budget:
                 st.write(f'Budget {item['category']} may be surpassed')
 
 st.divider()
-
-# Import / export data via .csv
-st.button('Import Data',on_click=st.session_state.tracker.import_from_csv(),type='primary')
-st.button('Export Data',on_click=st.session_state.tracker.export_to_csv(),type='primary')
