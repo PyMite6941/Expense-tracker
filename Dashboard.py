@@ -1,7 +1,5 @@
 # For the web ui setup
 import streamlit as st
-# For the web ui graphs / charts
-import plotly.express as px
 
 # Initialize the session states
 from streamlit_setup import init_st,sum_of_all_categories
