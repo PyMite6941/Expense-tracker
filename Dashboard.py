@@ -2,7 +2,7 @@
 import streamlit as st
 
 # Initialize the session states
-from streamlit_setup import init_st,sum_of_all_categories
+from streamlit_setup import init_st
 
 # Initialize the streamlit variables
 init_st()
@@ -25,17 +25,16 @@ else:
     st.write("No income found.")
 
 # Display budget alerts if any
-budget_categories = []
-for item in st.session_state.expenses:
-    if item in st.session_state.budget:
-        budget_categories.append(item['category'],item['price'])
-budget_categories = sum_of_all_categories(budget_categories)
-for item in st.session_state.budget:
-    for i in range(len(budget_categories)):
-        if item['category'] == budget_categories[i][0]:
-            if item['amount'] < budget_categories[i][1]:
-                st.write(f'Budget {item['category']} has been surpassed by {budget_categories[i][0]-item['amount']}')
-            elif item['amount'] == budget_categories[i][0]:
-                st.write(f'Budget {item['category']} may be surpassed')
+budget_totals = {}
+for expense in st.session_state.expenses:
+    tag = expense['tags']
+    budget_totals[tag] = budget_totals.get(tag,0) + expense['price']
+for budget in st.session_state.budget:
+    total_spent = budget_totals.get(budget['category'],0)
+    limit = float(budget['amount'])
+    if limit < total_spent:
+        st.warning(f'Budget {budget['category']} has been surpassed by {total_spent-limit}')
+    elif limit == total_spent:
+        st.write(f'Budget {budget['category']} may be surpassed')
 
 st.divider()

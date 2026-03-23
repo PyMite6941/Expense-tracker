@@ -6,15 +6,17 @@ import json
 import pandas as pd
 # This is used to process the API url to get the rates in the convert_currency() function
 import requests
+# Add more time safety
+from typing import Optional,List,Dict,Any
 
 class ExpenseTracker():
     # Initialize class variables
-    def __init__(self,filename='data.json'):
+    def __init__(self,filename:str='data.json') -> None:
         self.filename = filename
         self.currency_symbols = {'usd':'$','eur':'€','gbp':'£','jpy':'¥','cny':'¥','inr':'₹','krw':'₩','thb':'฿','aud':'A$','cad':'C$','chf':'Fr','sgd':'S$','hkd':'HK$','nzd':'NZ$','sek':'kr','nok':'kr','dkk':'kr','rub':'₽','mxn':'Mex$','brl':'R$','zar':'R','czk':'Kč','pln':'zł','huf':'Ft','ron':'lei','bgn':'лв','try':'₺','myr':'RM','php':'₱','idr':'Rp','ils':'₪','isk':'kr','hrk':'kn',}
 
     # Read data file
-    def open_file(self) -> list:
+    def open_file(self) -> Dict[str,Any]:
         try:
             # Read the file using open() function
             with open(self.filename,'r') as file:
@@ -30,36 +32,38 @@ class ExpenseTracker():
                     data['income'] = []
                 if 'budget' not in data:
                     data['budget'] = []
+                if 'subscriptions' not in data:
+                    data['subscriptions'] = []
             return {'success':True,'data':data}
         # If FileNotFound or JSONDecodeError then return empty list
         except FileNotFoundError:
-            data = {'expenses':[],'income':[],'budget':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[]}
             self.write_file(data)
             return {'success':True,'data':data}
         except json.JSONDecodeError:
-            data = {'expenses':[],'income':[],'budget':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[]}
             self.write_file(data)
             return {'success':True,'data':data}
     
     # Update data file
-    def write_file(self,list:list):
+    def write_file(self,data:dict) -> None:
         try:
             # Overwrite all data to self.filename using open() function
             with open(self.filename,'w') as file:
-                json.dump(list,file)
+                json.dump(data,file)
         # If FileNotFound then create the data file
         except FileNotFoundError:
             with open(self.filename,'w') as file:
                 json.dump([],file)
 
     # Assign the id to the expense for better organization
-    def assign_id(self,lst:list) -> int:
+    def assign_id(self,data:List[dict]) -> int:
         # If there aren't any previous items then assign '1'
-        if len(lst) == 0:
+        if len(data) == 0:
             return 1
         # IF there are previous items then calculate the next id value
         else:
-            max_id = max(item['id'] for item in lst)
+            max_id = max(item['id'] for item in data)
             return max_id + 1
         
     # Get the currency symbol from self.currency_symbols
@@ -72,7 +76,7 @@ class ExpenseTracker():
         return f"{currency_symbol}{price}"
 
     # Backbone of converting currency function
-    def convert_currency(self,price:float,from_curr:str,to_curr:str) -> float:
+    def convert_currency(self,price:float,from_curr:str,to_curr:str) -> Optional[float]:
         try:
             # API url
             url = f"https://api.frankfurter.app/latest?from={from_curr.upper()}&to={to_curr.upper()}"
@@ -88,7 +92,7 @@ class ExpenseTracker():
             return None
 
     # View all expenses
-    def view_total_expenses(self) -> list:
+    def view_total_expenses(self) -> Dict[str,Any]:
         # Define and return list
         result = self.open_file()
         data = result['data']
@@ -101,7 +105,7 @@ class ExpenseTracker():
         return {'success':True,'data':expenseList}
 
     # View filtered expenses
-    def view_filtered_expenses(self,price:float=None,purchased:str=None,tags:str=None,currency:str=None,date=None) -> list:
+    def view_filtered_expenses(self,price:Optional[float]=None,purchased:Optional[str]=None,tags:Optional[str]=None,currency:Optional[str]=None,date:Optional[str]=None) -> Dict[str,Any]:
         # Define the list to be processed
         result = self.open_file()
         data = result['data']
@@ -117,31 +121,31 @@ class ExpenseTracker():
             return {'success':False,'message':'Data not found'}
 
     # Add new expenses
-    def add_expenses(self,price:float,purchased:str,tags:str,currency:str,date,notes:str) -> list:        
+    def add_expenses(self,price:float,purchased:str,tags:str,currency:str,date:str,notes:str) -> Dict[str,Any]:        
         # Define the list to process
         result = self.open_file()
         data = result['data']
         expenseList = data['expenses']
-        try:
-            # Varaibles in the list format
-            expense = {
-                'id':self.assign_id(expenseList),
-                'price':price,
-                'purchased':purchased,
-                'tags':tags,
-                'date':date,
-                'currency':currency.lower(),
-                'notes':notes,
-            }
-            expenseList.append(expense)
-            data['expenses'] = expenseList
-            self.write_file(data)
-            return {'success':True,'message':'Expense properly added.'}
-        except ValueError:
-            return {'success':False,'message':'Variables not proper types.'}
+        # If not expenses
+        if not expenseList:
+            expenseList = []
+        # Varaibles in the list format
+        expense = {
+            'id':self.assign_id(expenseList),
+            'price':price,
+            'purchased':purchased,
+            'tags':tags,
+            'date':date,
+            'currency':currency.lower(),
+            'notes':notes,
+        }
+        expenseList.append(expense)
+        data['expenses'] = expenseList
+        self.write_file(data)
+        return {'success':True,'message':'Expense properly added.'}
 
     # Edit an expense
-    def edit_expenses(self,expense_id,price:float=None,purchased:str=None,tags:str=None,date:str=None,currency:str=None,notes:str=None)-> list:
+    def edit_expenses(self,expense_id:int,price:float=None,purchased:str=None,tags:str=None,date:str=None,currency:str=None,notes:str=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -188,7 +192,7 @@ class ExpenseTracker():
             return {'success':False,'message':'Invalid Expense ID'}
 
     # Delete an expense
-    def delete_expenses(self,expense_id) -> list:
+    def delete_expenses(self,expense_id:int) -> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -214,7 +218,7 @@ class ExpenseTracker():
             return {'success':False,'message':'Invalid ID format'}
         
     # View all income
-    def view_income(self) -> list:
+    def view_income(self) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -224,7 +228,7 @@ class ExpenseTracker():
         return {'success':True,'data':incomeList}
 
     # View filtered income
-    def view_filtered_income(self,amount:float=None,source:str=None,currency:str=None,date=None) -> list:
+    def view_filtered_income(self,amount:Optional[float]=None,source:Optional[str]=None,currency:Optional[str]=None,date:Optional[str]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -237,11 +241,14 @@ class ExpenseTracker():
             return {'success':False,'message':'Data not found'}
         
     # Add income data
-    def add_income(self,amount:float,source:str,date:str,currency:str='usd',notes:str=None) -> list:
+    def add_income(self,amount:float,source:str,date:str,currency:str='usd',notes:Optional[str]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
         incomeList = data['income']
+        # If not income
+        if not incomeList:
+            incomeList = []
         # Format for new income
         new_income = {
             'id':self.assign_id(incomeList),
@@ -257,7 +264,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Income recorded successfully'}
 
     # Edit income data
-    def edit_income(self,expense_id,price:float=None,purchased:str=None,tags:str=None,date:str=None,currency:str=None,notes:str=None)-> list:
+    def edit_income(self,expense_id:int,price:Optional[float]=None,purchased:Optional[str]=None,tags:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -292,11 +299,15 @@ class ExpenseTracker():
             return {'success':False,'message':'Invalid Income ID'}
         
     # Create a budget
-    def create_budget(self,category:str,amount:float,currency:str='usd') -> list:
+    def create_budget(self,category:str,amount:float,currency:str='usd') -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
         budgetList = data['budget']
+        # If not budget
+        if not budgetList:
+            budgetList = []
+        # Create the new budget
         newBudget = {
             'category':category,
             'amount':amount,
@@ -309,7 +320,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Created budget category successfully'}
 
     # Update budget
-    def update_budget(self,budgetCategory:str,category:str=None,amount:float=None) -> list:
+    def update_budget(self,budgetCategory:Optional[str],category:Optional[str]=None,amount:Optional[float]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -332,7 +343,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Edited the budget category successfully'}
 
     # Check the budget status
-    def check_budget_status(self,budgetCategory:str) -> list:
+    def check_budget_status(self,budgetCategory:str) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -350,15 +361,72 @@ class ExpenseTracker():
         return {'success':True,'data':budgetExpenses}
     
     # View total budget
-    def view_all_budget(self) -> list:
+    def view_all_budget(self) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
         budgetList = data['budget']
+        if not budgetList:
+            return {'success':False,'message':'No budgets found'}
         return {'success':True,'data':budgetList}
+
+    # Add subscriptions
+    def add_subscriptions(self,subscription_name:Optional[str],subscription_price:float,currency:str) -> Dict[str,Any]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        subscriptionList = data['subscriptions']
+        # If not subscriptions
+        if not subscriptionList:
+            subscriptionList = []
+        # Add subscription
+        subscription = {
+            'name': subscription_name,
+            'price': subscription_price,
+            'currency': currency,
+        }
+        subscriptionList.append(subscription)
+        data['subscriptions'] = subscriptionList
+        self.write_file(data)
+        return {'success':True}
+    
+    # Edit subscriptions
+    def edit_subscriptions(self,subscription_name:Optional[str]):
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        subscriptionList = data['subscription']
+        # Get the subscription data
+        #for subscription in subscriptionList:
+
+    
+    # View subscriptions
+    def view_subscriptions(self) -> Dict[str,Any]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        subscriptionList = data['subscriptions']
+        # View all subscriptions
+        if not subscriptionList:
+            return {'success':False,'message':'No subscriptions found'}
+        return {'success':True,'data':subscriptionList}
+    
+    # Search subscriptions
+    def view_filtered_subscriptions(self,subscriptionName:Optional[str]=None,subscriptionPrice:Optional[str]=None) -> Dict[str,Any]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        subscriptionList = data['subscriptions']
+        if not subscriptionList:
+            return {'success':False,'message':'No subscriptions found'}
+        filtered_subscriptions = [subscription for subscription in subscriptionList if (subscriptionName is not None and subscriptionName == subscription['name']) or (subscriptionPrice is not None and subscriptionPrice == subscription['price'])]
+        if not filtered_subscriptions:
+            return {'success':False,'message':'No subscriptions found'}
+        else:
+            return {'success':True,'data':filtered_subscriptions}
     
     # Import from .csv file
-    def import_from_csv(self,listName:str,filename:str) -> list:
+    def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -371,7 +439,7 @@ class ExpenseTracker():
         return {'success':True,'message':f'Imported {filename}.csv successfully'}
 
     # Export expenses to a .csv file
-    def export_to_csv(self,listName:str,filename:str) -> list:
+    def export_to_csv(self,listName:str,filename:str) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -385,7 +453,7 @@ class ExpenseTracker():
         return {'success':True,'message':f'Wrote {listName} to .csv','data':df}
 
     # Convert expenses to a different currency
-    def convert_prices_to_currency(self,to_currency:str) -> list:
+    def convert_prices_to_currency(self,to_currency:str) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -393,58 +461,44 @@ class ExpenseTracker():
         # If expenseList is empty do not continue
         if not expenseList:
             return {'success':False,'message':'No expenses to process'}
-        try:
-            # Loop through the expenseList list
-            for expense in expenseList:
-                # Only change the currency if the expense['currency'] doesn't match the to_currency
-                if expense['currency'] != to_currency:
-                    from_currency = expense['currency']
-                    price_in_new_currency = self.convert_currency(expense['price'],from_currency,to_currency)
-                    expense['price'] = round(price_in_new_currency,2)
-                    expense['currency'] = to_currency.lower()
-        # If price_in_new_currency returns 'None' (implying an error) then stop and return error statement
-        except TypeError:
-            return {'success':False,'message':f'Failed to convert {from_currency.upper()} -> {to_currency.upper()}'}
+        # Loop through the expenseList list
+        for expense in expenseList:
+            # Only change the currency if the expense['currency'] doesn't match the to_currency
+            if expense['currency'] != to_currency:
+                from_currency = expense['currency']
+                price_in_new_currency = self.convert_currency(expense['price'],from_currency,to_currency)
+                expense['price'] = round(price_in_new_currency,2)
+                expense['currency'] = to_currency.lower()
         self.write_file(data)
         return {'success':True,'message':f'Successfully converted {from_currency.upper()} -> {to_currency.upper()}'}
-    
-class TaxCalculator:
-    def __init__(self,income,expenses):
-        self.income = income
-        self.expenses = expenses
-        self.income_tax_values = [(11600,0.10),(47150,0.12),(100525,0.22)]
-        self.expense_tax_values = [(11600,0.01),(47150,0.03),(100525,0.13)]
 
-    # Calculate income tax based off of income tax values
-    def get_income_tax_value(self):
-        total_income = 0
-        # Get total amount of income
-        for item in self.income:
-            total_income += item['amount']
-        for i in range(len(self.income_tax_values)):
-            # If income is greater than the i[1] value but less than the i+1[1] value
-            if total_income > self.income_tax_values[i][0] and total_income < self.income_tax_values[i+1][0]:
-                return {'success':True,'result':total_income*self.income_tax_values[i][1]}
-            # If income is greater than the last value in the list
-            elif total_income > self.income_tax_values[len(self.income_tax_values)-1][0]:
-                return {'success':True,'result':total_income*self.income_tax_values[len(self.income_tax_values)-1][1]}
-            # Otherwise considered non-taxable
-            else:
-                return {'success':False,'message':'No taxable income found'}
-            
-    # Calculate expense task based off of expense tax values
-    def get_expense_tax_value(self):
-        total_expenses = 0
-        # Get total amount of expenses
-        for item in self.expenses:
-            total_expenses += item['price']
-        for i in range(len(self.expense_tax_values)):
-            # If expenses are greater than i[1] value but less than i+1[1] value
-            if total_expenses > self.expense_tax_values[i][0] and total_expenses < self.expense_tax_values[i+1][0]:
-                return {'success':True,'result':total_expenses*self.expense_tax_values[i][1]}
-            # If expenses are greater than the last value in the list
-            elif total_expenses > self.expense_tax_values[len(self.expense_tax_values)-1][0]:
-                return {'success':True,'result':total_expenses*self.expense_tax_values[len(self.expense_tax_values-1)][1]}
-            # Otherwise considered non-taxable
-            else:
-                return {'success':False,'message':'No taxable expenses found'}
+__version__ = "v1.0"
+
+# For getting web pages such as the GitHub page for this project
+import requests
+# For checking for updates properly
+from packaging.version import Version
+# For running the updates properly
+import subprocess
+import sys
+# Check the repo for the current version number
+def check_for_updates(repo="PyMite6941/Expense-tracker"):
+    try:
+        url = f"https://api.github.com/repos/{repo}/releases/latest"
+        response = requests.get(url,timeout=5)
+        response.raise_for_status()
+        return {'success':True,'version':response.json()["tag_name"]}
+    except Exception as e:
+        return {'success':False,'message':f'{e}'}
+
+# Validate the need for an update
+def validate_update(latest_tag):
+    latest = latest_tag.lstrip('v')
+    current = __version__
+    return {'update':Version(latest) > Version(current)}
+
+# Start the update from GitHub
+def start_update():
+    subprocess.run(["git","pull"],check=True)
+    subprocess.run([sys.executable,"-m","pip","install","-r","requirements.txt"],check="True")
+    return {'success':True,'messaage':'Close the program to run with the new updates'}

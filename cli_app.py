@@ -9,7 +9,7 @@ import plotext as plt
 from datetime import datetime
 
 # Import data from the core python file
-from core_stuff import ExpenseTracker
+from core_stuff import ExpenseTracker,check_for_updates,validate_update,start_update
 
 def show_data_in_bar_graph(array:list,title:str) -> list:
     # Graph data in a bar chart
@@ -50,6 +50,8 @@ while running:
             questionary.Choice('Calculate Taxes'),
             questionary.Choice('Show data on graphs and charts'),
             questionary.Choice('Convert money to a different currency'),
+            questionary.Separator('--- Program Functions ---'),
+            questionary.Choice('Update Software'),
             questionary.Choice('Exit'),
         ],
         pointer='>'
@@ -443,11 +445,25 @@ while running:
         result = tracker.convert_prices_to_currency(to_currency)
         color = 'green' if result['success'] else 'red'
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
+    # Get the functions to update software
+    elif choice == 'Update Software':
+        result = check_for_updates()
+        if result['success']:
+            new_version = check_for_updates()
+            results = validate_update(new_version)
+            if results['update']:
+                questionary.text('[bold yellow]Updating[/bold yellow] ...')
+                start_update()
+                questionary.text('[bold green]Update Completed[/bold green].')
+            else:
+                questionary.text('[bold green]All up to date[/bold green].')
+        else:
+            questionary.text(f'[bold red]{result['message']}[/bold red].')
     # Get the exit command
     elif choice == 'Exit':
-        console.print("Goodbye.")
+        console.print("[bold orange]Goodbye[/bold orange].")
         running = False
     # If ctrl+c pressed then exit
     elif choice is None:
-        console.print("Farewell.")
+        console.print("[bold orange]Farewell[/bold orange].")
         running = False

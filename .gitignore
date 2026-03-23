@@ -5,5 +5,7 @@ data.json
 nul
 expenses.csv
 income.csv
+budget.csv
+subscriptions.csv
 260129_proj_CPT_ProgramCode.pdf
 pdf_converter.py

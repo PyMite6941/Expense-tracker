@@ -1,7 +1,5 @@
 # For the web ui setup
 import streamlit as st
-# For data manipulation
-import pandas as pd
 
 # Initialize the session states
 from streamlit_setup import init_st,sync_data
@@ -38,4 +36,5 @@ if st.session_state.file_uploader:
     sync_data(st.session_state.file_uploader)
     st.success("Data imported successfully!")
 result = st.session_state.tracker.export_to_csv("income","income.csv")
-st.download_button(label="Export income to .csv",data=result['data'].to_csv(index=False).encode('utf-8'),file_name="income.csv",mime="text/csv")
+if result['success']:
+    st.download_button(label="Export income to .csv",data=result['data'].to_csv(index=False).encode('utf-8'),file_name="income.csv",mime="text/csv")
