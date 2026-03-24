@@ -12,7 +12,7 @@ search = st.text_input("Search income ...","")
 if not st.session_state.income:
     st.write("No income found. Add income to get started.")
 if search:
-    income = [income for income in st.session_state.income if search.lower() in income['category'].lower() or search.lower() in income['notes'].lower()]
+    income = [income for income in st.session_state.income if search.lower() in income['source'].lower() or search.lower() in (income['notes'].lower() or '')]
 else:
     income = st.session_state.income
 # Show income
@@ -33,7 +33,8 @@ else:
 # Import / export income via .csv
 st.file_uploader("Import income from .csv", type=["csv"], key="file_uploader")
 if st.session_state.file_uploader:
-    sync_data(st.session_state.file_uploader)
+    st.session_state.tracker.import_from_csv("income",st.session_state.file_uploader)
+    sync_data()
     st.success("Data imported successfully!")
 result = st.session_state.tracker.export_to_csv("income","income.csv")
 if result['success']:

@@ -11,7 +11,7 @@ from datetime import datetime
 # Import data from the core python file
 from core_stuff import ExpenseTracker,check_for_updates,validate_update,start_update
 
-def show_data_in_bar_graph(array:list,title:str) -> list:
+def show_data_in_bar_graph(array:list,title:str) -> None:
     # Graph data in a bar chart
     plt.bar(array)
     plt.title(title)
@@ -47,7 +47,6 @@ while running:
             questionary.Separator('--- Cool Functions ---'),
             questionary.Choice('Import data from a .csv file'),
             questionary.Choice('Export data to a .csv file'),
-            questionary.Choice('Calculate Taxes'),
             questionary.Choice('Show data on graphs and charts'),
             questionary.Choice('Convert money to a different currency'),
             questionary.Separator('--- Program Functions ---'),
@@ -110,14 +109,14 @@ while running:
             notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
             if not notes.strip():
                 notes = None
-        result = tracker.view_filtered_expenses(price=price if 'Price' in filter_choice else None,purchased=purchased if 'Purchased' in filter_choice else None,tags=tags if 'Category' in filter_choice else None,currency=currency if 'Currency' in filter_choice else None,date=date if 'Date of Purchase' in filter_choice else None,notes=notes if 'Notes' in filter_choice else None)
+        result = tracker.view_filtered_expenses(price=price if 'Price' in filter_choice else None,purchased=purchased if 'Purchased' in filter_choice else None,tags=tags if 'Category' in filter_choice else None,currency=currency if 'Currency' in filter_choice else None,date=date if 'Date of Purchase' in filter_choice else None)
         if not result['success']:
             console.print(f"[bold red]{result['message']}[/bold red].")
             continue
-        data = result['data']
-        if not data['expenses']:
+        if not expenses['data']:
             console.print(f"[bold red]Data not found[/bold red].")
             continue
+        expenses = result['data']
         # Create a table to put data into
         table = Table(title="Total Expenses",header_style='blue')
         table.add_column("ID",justify='right',style='cyan')
@@ -127,12 +126,11 @@ while running:
         table.add_column("Date of Purchase",style='blue')
         table.add_column("Currency",style='red')
         table.add_column("Notes",style='blue')
-        data = tracker.view_total_expenses()
         # If data successfully retrieved
         if result['success']:
             # Loop through data and organize it
             for expense in result['data']:
-                table.add_row(str(expense['id']),expense['price'],str(expense['purchased']),str(expense['tags']),str(expense['date']),str(expense['currency']),str(expense['notes']))
+                table.add_row(str(expense['id']),str(expense['price']),str(expense['purchased']),str(expense['tags']),str(expense['date']),str(expense['currency']),str(expense['notes']))
             console.print(table)
         else:
             console.print(f"[bold red]{data['message']}[/bold red].")
@@ -242,20 +240,14 @@ while running:
             choices=[
                 'Amount',
                 'Source',
-                'Tags',
                 'Date',
                 'Currency',
-                'Notes',
             ],
         ).ask()
         if 'Amount' in choice:
             amount = float(questionary.text("How much was earned?\n> ").ask())
         if 'Source' in choice:
             source = str(questionary.text("What was the source?\n> ").ask())
-        if 'Tags' in choice:
-            tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
-            if not tags.strip():
-                tags = 'other'
         if 'Currency' in choice:
             currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
             if not currency.strip():
@@ -264,16 +256,14 @@ while running:
             date = str(questionary.text("What is the date (default is the current date) ?\n> ").ask())
             if not date:
                 date = str(datetime.now().strftime("%Y-%m-%d"))
-        if 'Notes' in choice:
-            notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
-            if not notes.strip():
-                notes = None
-        result = tracker.view_filtered_income(amount=amount if 'Amount' in choice else None,source=source if 'Source' in choice else None,tags=tags if 'Tags' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date' in choice else None,notes=notes if 'Notes' in choice else None)
+        result = tracker.view_filtered_income(amount=amount if 'Amount' in choice else None,source=source if 'Source' in choice else None,currency=currency if 'Currency' in choice else None,date=date if 'Date' in choice else None)
         if not result['success']:
             console.print(f"[bold red]{result['message']}[/bold red].")
+            continue
         incomeList = result['data']
         if not incomeList:
             console.print("[bold red]No income data found[/bold red].")
+            continue
         table = Table(title="Filtered Income",header_style='blue')
         table.add_column("ID",justify='right',style='cyan')
         table.add_column("Amount",style='white')
@@ -348,9 +338,12 @@ while running:
             if not notes.strip():
                 notes = None
         result = tracker.edit_income(expense_id,amount if amount is not None else None,source if source is not None else None,tags if tags is not None else None,date if date is not None else None,currency if currency is not None else None,notes if notes is not None else None)
+        color = 'green' if result['success'] else 'red'
+        console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # Delete income
     elif choice == 'Delete Income':
-        result = tracker.delete_income()
+        income_id = int(questionary.text("What ID should be deleted?\n> ").ask())
+        result = tracker.delete_income(income_id)
         color = 'green' if result['success'] else 'red'
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # Get the function to create budgets
@@ -358,7 +351,7 @@ while running:
         amount_of_budgets = int(questionary.text("How many budgets should be made?\n> ").ask())
         for _ in range(amount_of_budgets):
             category = str(questionary.text("What category should be budgeted?\n> ").ask())
-            amount = str(questionary.text("How much should be budgeted?\n> ").ask())
+            amount = float(questionary.text("How much should be budgeted?\n> ").ask())
             currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
             if not currency.strip():
                 currency = 'usd'
@@ -368,8 +361,8 @@ while running:
     # Get the function to edit the budgets
     elif choice == 'Edit budget':
         budgetCategory = str(questionary.text("What category should be edited?\n> ").ask())
-        newAmount = str(questionary.text("What is the new amount for the budget?\n> ").ask())
-        result = tracker.update_budget(budgetCategory,newAmount)
+        newAmount = float(questionary.text("What is the new amount for the budget?\n> ").ask())
+        result = tracker.update_budget(budgetCategory,amount=newAmount)
         color = 'green' if result['success'] else 'red'
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
     # Get the function to import expenses from a .csv file
@@ -415,11 +408,6 @@ while running:
             result = tracker.export_to_csv('income',filename)
         color = 'green' if result['success'] else 'red'
         console.print(f"[bold {color}]{result['message']}[/bold {color}].")
-    # Get the function to calculate taxes
-    elif choice == 'Calculate Taxes':
-        result = tracker.calculate_taxes()
-        if not result['success']:
-            console.print(f"[bold red]{result['message']}[/bold red].")
     # Get the function to graph the expense data in the CLI
     elif choice == 'Show data on graphs and charts':
         result = tracker.open_file()
@@ -427,18 +415,21 @@ while running:
             console.print(f"[bold red]{result['message']}[/bold red].")
         data = result['data']
         choice = questionary.select(
-            "What should be exported?",
+            "What should be graphed?",
             instructions="Use arrow keys to navigate.",
             choices=[
                 'Expenses',
-                'Income'
+                'Income',
+                'Subscriptions'
             ],
             pointer='>',
         ).ask()
         if choice == 'Expenses':
-            show_data_in_bar_graph(tracker.show_data_in_bar_graph('expenses'),title='Expenses')
+            show_data_in_bar_graph(data['expenses'],title='Expenses')
         elif choice == 'Income':
-            show_data_in_bar_graph(tracker.show_data_in_bar_graph('income'),title='Income')
+            show_data_in_bar_graph(data['income'],title='Income')
+        elif choice == 'Subscriptions':
+            show_data_in_bar_graph(data['subscriptions'],title='Subscriptions')
     # Get the function to convert expenses to a different currency
     elif choice == 'Convert money to a different currency':
         to_currency = str(questionary.text("Enter the currency you want to convert all expenses to (e.g. USD, EUR):\n> ").ask()).lower().strip()
@@ -450,15 +441,15 @@ while running:
         result = check_for_updates()
         if result['success']:
             new_version = check_for_updates()
-            results = validate_update(new_version)
+            results = validate_update(new_version['version'])
             if results['update']:
-                questionary.text('[bold yellow]Updating[/bold yellow] ...')
+                console.print('[bold yellow]Updating ...[/bold yellow]')
                 start_update()
-                questionary.text('[bold green]Update Completed[/bold green].')
+                console.print('[bold green]Update Completed[/bold green].')
             else:
-                questionary.text('[bold green]All up to date[/bold green].')
+                console.print('[bold green]All up to date[/bold green].')
         else:
-            questionary.text(f'[bold red]{result['message']}[/bold red].')
+            console.print(f"[bold red]{result['message']}[/bold red].")
     # Get the exit command
     elif choice == 'Exit':
         console.print("[bold orange]Goodbye[/bold orange].")

@@ -30,7 +30,7 @@ def init_st():
     if 'selected_for_deletion' not in st.session_state:
         st.session_state.selected_for_deletion = []
     if 'current_month' not in st.session_state:
-        st.session_state.current_month = datetime.now().month
+        st.session_state.current_month = datetime.now().strftime("%Y-%m")
     if 'previous_currency' not in st.session_state:
         st.session_state.previous_currency = ''
 

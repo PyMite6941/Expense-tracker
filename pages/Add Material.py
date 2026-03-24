@@ -42,7 +42,7 @@ elif choice == 'Income':
         income_date = st.date_input('Income Date')
         income_notes = st.text_area('Income Notes')
         if st.form_submit_button('Add Income'):
-            results = st.session_state.tracker.add_income(income_amount,income,income_currency,str(income_date),income_notes)
+            results = st.session_state.tracker.add_income(income_amount,income,str(income_date),income_currency,income_notes)
             if results['success']:
                 st.success(results['message'])
                 sync_data()
@@ -62,7 +62,7 @@ elif choice == 'Budget':
         budget_date = st.date_input('Budget Date')
         budget_notes = st.text_area('Budget Notes')
         if st.form_submit_button('Add Budget'):
-            results = st.session_state.tracker.create_budget(budget_amount,budget_category,budget_currency)
+            results = st.session_state.tracker.create_budget(budget_category,budget_amount,budget_currency)
             if results['success']:
                 st.success(results['message'])
                 sync_data()
@@ -73,7 +73,7 @@ elif choice == 'Subscription':
     # Add subscription
     with st.form('add_subscription_form'):
         subscription_name = st.text_area('Subscription Name')
-        subscription_price = st.text_area('Subscription Price')
+        subscription_price = st.number_input('Subscription Price',min_value=0.0,step=0.01)
         subscription_currency = st.selectbox('Budget Currency',options=['USD','EUR','JPY','GBP','AUD','CAD','CHF','CNY','SEK','NZD','THB','INR','Other'])
         if st.form_submit_button('Add Subscription'):
             results = st.session_state.tracker.add_subscriptions(subscription_name,subscription_price,subscription_currency)

@@ -23,7 +23,7 @@ class ExpenseTracker():
                 data = json.load(file)
             # If not organized right then organize it right
             if not isinstance(data,dict):
-                data = {'expenses':[],'income':[],'budget':[]}
+                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[]}
             # If not data list then create it
             else:
                 if 'expenses' not in data:
@@ -54,7 +54,7 @@ class ExpenseTracker():
         # If FileNotFound then create the data file
         except FileNotFoundError:
             with open(self.filename,'w') as file:
-                json.dump([],file)
+                json.dump(data,file)
 
     # Assign the id to the expense for better organization
     def assign_id(self,data:List[dict]) -> int:
@@ -76,20 +76,20 @@ class ExpenseTracker():
         return f"{currency_symbol}{price}"
 
     # Backbone of converting currency function
-    def convert_currency(self,price:float,from_curr:str,to_curr:str) -> Optional[float]:
+    def convert_currency(self,price:float,from_curr:str,to_curr:str) -> Dict[bool,Any]:
         try:
             # API url
             url = f"https://api.frankfurter.app/latest?from={from_curr.upper()}&to={to_curr.upper()}"
-            response = requests.get(url)
+            response = requests.get(url,timeout=5)
             # Get rate to return the improved price
             rate = response.json()['rates'][to_curr.upper()]
-            return rate*price
+            return {'success':True,'rate':rate*price}
         # If cannot connection to the API website the return None
         except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError):
-            return None
+            return {'success':False,'message':'Could not connect to the Conversion API'}
         # If bad/wrong variables to be processed then return None
         except KeyError:
-            return None
+            return {'success':False,'message':'Bad variables'}
 
     # View all expenses
     def view_total_expenses(self) -> Dict[str,Any]:
@@ -145,7 +145,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Expense properly added.'}
 
     # Edit an expense
-    def edit_expenses(self,expense_id:int,price:float=None,purchased:str=None,tags:str=None,date:str=None,currency:str=None,notes:str=None)-> Dict[str,Any]:
+    def edit_expenses(self,expense_id:int,price:Optional[float]=None,purchased:Optional[str]=None,tags:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -177,9 +177,10 @@ class ExpenseTracker():
                         from_curr = expense['currency']
                         price = expense['price']
                         expense['currency'] = currency
-                        expense['price'] = self.convert_currency(price,from_curr,expense['currency'])
-                        if not expense['price']:
-                            return {'success':False,'message':f"Error converting {from_curr} -> {expense['currency']}."}
+                        result = self.convert_currency(price,from_curr,expense['currency'])
+                        if not result['success']:
+                            return {'success':False,'message':result['message']}
+                        expense['price'] = result['rate']
                     # Change the notes if notes != None
                     if notes != None:
                         expense['notes'] = notes
@@ -286,9 +287,10 @@ class ExpenseTracker():
                         from_curr = income['currency']
                         amount = income['amount']
                         income['currency'] = currency
-                        income['amount'] = self.convert_currency(amount,from_curr,income['currency'])
-                        if not income['amount']:
-                            return {'success':False,'message':f"Error converting {from_curr} -> {income['currency']}"}
+                        result = self.convert_currency(amount,from_curr,income['currency'])
+                        if not result['success']:
+                            return {'success':False,'message':result['message']}
+                        income['amount'] = result['rate']
                     if notes is not None:
                         income['notes'] = notes
             if count < 1:
@@ -298,8 +300,34 @@ class ExpenseTracker():
         except ValueError:
             return {'success':False,'message':'Invalid Income ID'}
         
+    # Delete income
+    def delete_income(self,income_id:int) -> Dict[str,Any]:
+        try:
+            # Define the list to process
+            result = self.open_file()
+            data = result['data']
+            incomeList = data['income']
+            # If incomeList is empty do not continue
+            if not incomeList:
+                return {'success':False,'message':'No income to process'}
+            deleteIncome = ''
+            # Loop through all of the income in the list
+            for income in incomeList:
+                # If the income id matches delete the income from the list
+                if income['id'] == income_id:
+                    deleteIncome = income
+            # If deleteIncome == '' after the loop then return error
+            if deleteIncome == '':
+                return {'success':False,'message':'Income not found'}
+            incomeList.remove(deleteIncome)
+            data['income'] = incomeList
+            self.write_file(data)
+            return {'success':True,'message':'Income deleted successfully'}
+        except ValueError:
+            return {'success':False,'message':'Invalid ID format'}
+
     # Create a budget
-    def create_budget(self,category:str,amount:float,currency:str='usd') -> Dict[str,Any]:
+    def create_budget(self,category:str,amount:float,currency:Optional[str]='usd') -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -320,7 +348,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Created budget category successfully'}
 
     # Update budget
-    def update_budget(self,budgetCategory:Optional[str],category:Optional[str]=None,amount:Optional[float]=None) -> Dict[str,Any]:
+    def update_budget(self,budgetCategory:str,category:Optional[str]=None,amount:Optional[float]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -369,9 +397,35 @@ class ExpenseTracker():
         if not budgetList:
             return {'success':False,'message':'No budgets found'}
         return {'success':True,'data':budgetList}
+    
+    # Delete budget
+    def delete_budget(self,budget_category:str) -> Dict[str,Any]:
+        try:
+            # Define the list to process
+            result = self.open_file()
+            data = result['data']
+            budgetList = data['budget']
+            # If budgetList is empty do not continue
+            if not budgetList:
+                return {'success':False,'message':'No budgets to process'}
+            deleteBudget = ''
+            # Loop through all of the budgets in the list
+            for budget in budgetList:
+                # If the budget category matches delete the budget from the list
+                if budget['category'] == budget_category:
+                    deleteBudget = budget
+            # If deleteBudget == '' after the loop then return error
+            if deleteBudget == '':
+                return {'success':False,'message':'Budget not found'}
+            budgetList.remove(deleteBudget)
+            data['budget'] = budgetList
+            self.write_file(data)
+            return {'success':True,'message':'Budget deleted successfully'}
+        except ValueError:
+            return {'success':False,'message':'Invalid category format'}
 
     # Add subscriptions
-    def add_subscriptions(self,subscription_name:Optional[str],subscription_price:float,currency:str) -> Dict[str,Any]:
+    def add_subscriptions(self,subscription_name:Optional[str],subscription_price:float,currency:str,start_date:Optional[str]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -384,22 +438,48 @@ class ExpenseTracker():
             'name': subscription_name,
             'price': subscription_price,
             'currency': currency,
+            'startDate': start_date,
         }
         subscriptionList.append(subscription)
         data['subscriptions'] = subscriptionList
         self.write_file(data)
-        return {'success':True}
+        return {'success':True,'message':'Subscription successfully added'}
     
     # Edit subscriptions
-    def edit_subscriptions(self,subscription_name:Optional[str]):
-        # Define the list to process
-        result = self.open_file()
-        data = result['data']
-        subscriptionList = data['subscription']
-        # Get the subscription data
-        #for subscription in subscriptionList:
+    def edit_subscription(self,subscription_category:Optional[str],price:Optional[float]=None,name:Optional[str]=None,currency:Optional[str]=None,start_date:Optional[str]=None)-> Dict[str,Any]:
+        try:
+            # Define the list to process
+            result = self.open_file()
+            data = result['data']
+            subscriptionList = data['subscriptions']
+            # If subscriptionList is empty
+            if not subscriptionList:
+                return {'success':False,'message':'No subscriptions to process.'}
+            count = 0
+            for subscription in subscriptionList:
+                if subscription['name'] == subscription_category:
+                    count += 1
+                    if price is not None:
+                        subscription['price'] = price
+                    if name is not None:
+                        subscription['name'] = name
+                    if currency is not None:
+                        from_curr = subscription['currency']
+                        price = subscription['price']
+                        subscription['currency'] = currency
+                        result = self.convert_currency(price,from_curr,subscription['currency'])
+                        if not result['success']:
+                            return {'success':False,'message':result['message']}
+                        subscription['price'] = result['rate']
+                    if start_date is not None:
+                        subscription['startDate'] = start_date
+            if count < 1:
+                return {'success':False,'message':'Subscription not found'}
+            self.write_file(data)
+            return {'success':True,'message':'Subscription edited successfully'}
+        except ValueError:
+            return {'success':False,'message':'Invalid Subscription'}
 
-    
     # View subscriptions
     def view_subscriptions(self) -> Dict[str,Any]:
         # Define the list to process
@@ -412,7 +492,7 @@ class ExpenseTracker():
         return {'success':True,'data':subscriptionList}
     
     # Search subscriptions
-    def view_filtered_subscriptions(self,subscriptionName:Optional[str]=None,subscriptionPrice:Optional[str]=None) -> Dict[str,Any]:
+    def view_filtered_subscriptions(self,subscriptionName:Optional[str]=None,subscriptionPrice:Optional[float]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -424,6 +504,32 @@ class ExpenseTracker():
             return {'success':False,'message':'No subscriptions found'}
         else:
             return {'success':True,'data':filtered_subscriptions}
+    
+    # Delete subscriptions
+    def delete_subscription(self,subscription_category:str) -> Dict[str,Any]:
+        try:
+            # Define the list to process
+            result = self.open_file()
+            data = result['data']
+            subscriptionList = data['subscriptions']
+            # If subscriptionList is empty do not continue
+            if not subscriptionList:
+                return {'success':False,'message':'No subscriptions to process'}
+            deleteSubscription = ''
+            # Loop through all of the subscriptions in the list
+            for subscription in subscriptionList:
+                # If the subscription category matches delete the subscription from the list
+                if subscription['name'] == subscription_category:
+                    deleteSubscription = subscription
+            # If deleteSubscription == '' after the loop then return error
+            if deleteSubscription == '':
+                return {'success':False,'message':'Subscription not found'}
+            subscriptionList.remove(deleteSubscription)
+            data['subscriptions'] = subscriptionList
+            self.write_file(data)
+            return {'success':True,'message':'Subscription removed successfully'}
+        except ValueError:
+            return {'success':False,'message':'Invalid category format'}
     
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
@@ -463,6 +569,7 @@ class ExpenseTracker():
             return {'success':False,'message':'No expenses to process'}
         # Loop through the expenseList list
         for expense in expenseList:
+            from_currency = to_currency
             # Only change the currency if the expense['currency'] doesn't match the to_currency
             if expense['currency'] != to_currency:
                 from_currency = expense['currency']
@@ -494,11 +601,11 @@ def check_for_updates(repo="PyMite6941/Expense-tracker"):
 # Validate the need for an update
 def validate_update(latest_tag):
     latest = latest_tag.lstrip('v')
-    current = __version__
+    current = __version__.lstrip('v')
     return {'update':Version(latest) > Version(current)}
 
 # Start the update from GitHub
 def start_update():
     subprocess.run(["git","pull"],check=True)
-    subprocess.run([sys.executable,"-m","pip","install","-r","requirements.txt"],check="True")
+    subprocess.run([sys.executable,"-m","pip","install","-r","requirements.txt"],check=True)
     return {'success':True,'messaage':'Close the program to run with the new updates'}

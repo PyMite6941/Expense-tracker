@@ -33,8 +33,8 @@ for budget in st.session_state.budget:
     total_spent = budget_totals.get(budget['category'],0)
     limit = float(budget['amount'])
     if limit < total_spent:
-        st.warning(f'Budget {budget['category']} has been surpassed by {total_spent-limit}')
+        st.warning(f"Budget {budget['category']} has been surpassed by {total_spent-limit}")
     elif limit == total_spent:
-        st.write(f'Budget {budget['category']} may be surpassed')
+        st.write(f"Budget {budget['category']} may be surpassed")
 
 st.divider()
