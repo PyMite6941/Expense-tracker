@@ -1,8 +1,12 @@
 # For the web ui setup
 import streamlit as st
+# For proper importing stuff
+import os
+import sys
+sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..')))
 
 # Initialize the session states
-from streamlit_setup import init_st,sync_data
+from core.streamlit_setup import init_st,sync_data
 
 init_st()
 

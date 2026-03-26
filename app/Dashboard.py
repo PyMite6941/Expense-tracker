@@ -1,8 +1,12 @@
 # For the web ui setup
 import streamlit as st
+# For proper importing stuff
+import os
+import sys
+sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
 
 # Initialize the session states
-from streamlit_setup import init_st
+from core.streamlit_setup import init_st
 
 # Initialize the streamlit variables
 init_st()
@@ -13,8 +17,8 @@ st.title('Web-based Expense and Income Tracking')
 # Create benchmarks to show off
 if st.session_state.expenses:
     filtered_expenses = [expense for expense in st.session_state.expenses if expense['date'][:7] == st.session_state.current_month]
-    monthly_earnings = sum(expense['price'] for expense in filtered_expenses)
-    st.metric('Monthly Earnings',f"{monthly_earnings:.2f} USD")
+    monthly_expenses = sum(expense['price'] for expense in filtered_expenses)
+    st.metric('Monthly Expenses',f"{monthly_expenses:.2f} USD")
 else:
     st.write("No expenses found.")
 if st.session_state.income:

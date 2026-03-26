@@ -1,5 +1,3 @@
-# This is for calcualting the dates that are added in the add_expenses() function
-from datetime import datetime
 # This is used to process lists, especially writing and reading files as seen in the open_file() and write_file() functions
 import json
 # This is to import and export .csv files easily
@@ -348,7 +346,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Created budget category successfully'}
 
     # Update budget
-    def update_budget(self,budgetCategory:str,category:Optional[str]=None,amount:Optional[float]=None) -> Dict[str,Any]:
+    def update_budget(self,budgetCategory:str,category:Optional[str]=None,amount:Optional[float]=None,currency:Optional[str]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -367,6 +365,14 @@ class ExpenseTracker():
                     budget['category'] = category
                 if amount is not None:
                     budget['amount'] = amount
+                if currency is not None:
+                    from_curr = budget['currency']
+                    amount = budget['amount']
+                    budget['currency'] = currency
+                    result = self.convert_currency(amount,from_curr,budget['currency'])
+                    if not result['success']:
+                        return {'success':False,'message':result['message']}
+                    budget['amount'] = result['rate']
         self.write_file(data)
         return {'success':True,'message':'Edited the budget category successfully'}
 
@@ -446,7 +452,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Subscription successfully added'}
     
     # Edit subscriptions
-    def edit_subscription(self,subscription_category:Optional[str],price:Optional[float]=None,name:Optional[str]=None,currency:Optional[str]=None,start_date:Optional[str]=None)-> Dict[str,Any]:
+    def edit_subscription(self,previous_name:Optional[float],price:Optional[float]=None,name:Optional[str]=None,currency:Optional[str]=None,start_date:Optional[str]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -457,7 +463,7 @@ class ExpenseTracker():
                 return {'success':False,'message':'No subscriptions to process.'}
             count = 0
             for subscription in subscriptionList:
-                if subscription['name'] == subscription_category:
+                if subscription['name'] == name:
                     count += 1
                     if price is not None:
                         subscription['price'] = price
@@ -578,6 +584,14 @@ class ExpenseTracker():
                 expense['currency'] = to_currency.lower()
         self.write_file(data)
         return {'success':True,'message':f'Successfully converted {from_currency.upper()} -> {to_currency.upper()}'}
+    
+    def apply_rules(array:list):
+        with open('rules.json','rb') as file:
+            rules = json.load(file)
+        for rule in rules:
+            field = rule['field']
+            operator = rule['operator']
+
 
 __version__ = "v1.0"
 
