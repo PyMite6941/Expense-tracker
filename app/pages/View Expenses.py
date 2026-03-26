@@ -15,7 +15,7 @@ search = st.text_input("Search expenses ...","")
 # If expenses are empty
 if not st.session_state.expenses:
     st.write("No expenses found. Add expenses to get started.")
-if search:
+if search and search != "":
     expenses = [expense for expense in st.session_state.expenses if search.lower() in expense['tags'].lower() or search.lower() in (expense['notes'] or '').lower()]
 else:
     expenses = st.session_state.expenses

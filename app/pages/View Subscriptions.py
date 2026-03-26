@@ -15,7 +15,7 @@ search = st.text_input("Search subscriptions ...","")
 # If subscription is empty
 if not st.session_state.subscriptions:
     st.write("No subscriptions found. Add subscriptions to get started.")
-if search:
+if search and search != "":
     subscriptions = [subscription for subscription in st.session_state.subscriptions if search.lower() in subscription['name'].lower()]
 else:
     subscriptions = st.session_state.subscriptions

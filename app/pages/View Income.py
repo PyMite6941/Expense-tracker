@@ -15,7 +15,7 @@ search = st.text_input("Search income ...","")
 # If income is empty
 if not st.session_state.income:
     st.write("No income found. Add income to get started.")
-if search:
+if search and search != "":
     income = [income for income in st.session_state.income if search.lower() in income['source'].lower() or search.lower() in (income['notes'].lower() or '')]
 else:
     income = st.session_state.income
