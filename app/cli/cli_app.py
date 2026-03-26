@@ -48,6 +48,7 @@ class Run:
                     questionary.Separator('--- Cool Functions ---'),
                     questionary.Choice('Import data from a .csv file'),
                     questionary.Choice('Export data to a .csv file'),
+                    questionary.Choice('Delete duplicates'),
                     questionary.Choice('Show data on graphs and charts'),
                     questionary.Choice('Convert money to a different currency'),
                     questionary.Separator('--- Program Functions ---'),
@@ -114,10 +115,10 @@ class Run:
                 if not result['success']:
                     console.print(f"[bold red]{result['message']}[/bold red].")
                     continue
-                if not expenses['data']:
+                expenses = result['data']
+                if not expenses:
                     console.print(f"[bold red]Data not found[/bold red].")
                     continue
-                expenses = result['data']
                 # Create a table to put data into
                 table = Table(title="Total Expenses",header_style='blue')
                 table.add_column("ID",justify='right',style='cyan')
@@ -134,7 +135,7 @@ class Run:
                         table.add_row(str(expense['id']),str(expense['price']),str(expense['purchased']),str(expense['tags']),str(expense['date']),str(expense['currency']),str(expense['notes']))
                     console.print(table)
                 else:
-                    console.print(f"[bold red]{data['message']}[/bold red].")
+                    console.print(f"[bold red]{result['message']}[/bold red].")
             # Get the function for adding expenses
             elif choice == 'Add expenses':
                 # Loop through the add expenses stuff for amount of expenses desired to be created
@@ -311,7 +312,6 @@ class Run:
                     choices=[
                         'Amount',
                         'Source',
-                        'Tags',
                         'Date',
                         'Currency',
                         'Notes',
@@ -322,10 +322,6 @@ class Run:
                     amount = float(questionary.text("How much was earned?\n> ").ask())
                 if 'Source' in choice:
                     source = str(questionary.text("What was the source?\n> ").ask())
-                if 'Tags' in choice:
-                    tags = str(questionary.text("What tags (i.e. bills, food, etc; default is 'other') ?\n> ").ask())
-                    if not tags.strip():
-                        tags = 'other'
                 if 'Currency' in choice:
                     currency = str(questionary.text("In which currency (i.e. USD, EUR; default is 'USD') ?\n> ").ask()).lower()
                     if not currency.strip():
@@ -338,7 +334,7 @@ class Run:
                     notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
                     if not notes.strip():
                         notes = None
-                result = tracker.edit_income(expense_id,amount if amount is not None else None,source if source is not None else None,tags if tags is not None else None,date if date is not None else None,currency if currency is not None else None,notes if notes is not None else None)
+                result = tracker.edit_income(expense_id,amount if amount is not None else None,source if source is not None else None,date if date is not None else None,currency if currency is not None else None,notes if notes is not None else None)
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
             # Delete income
@@ -431,6 +427,12 @@ class Run:
                     show_data_in_bar_graph(data['income'],title='Income')
                 elif choice == 'Subscriptions':
                     show_data_in_bar_graph(data['subscriptions'],title='Subscriptions')
+            # Get the function to remove duplicate entries
+            elif choice == 'Delete duplicates':
+                list_choice = str(questionary.text("What entry type should be edited? (Expenses, Income, Budget, or Subscription)\n> ").ask()).lower().strip()
+                result = tracker.check_for_duplicates(list_choice)
+                color = 'green' if result['success'] else 'red'
+                console.print(f"[bold {color}]{result['message']}[/bold {color}].")
             # Get the function to convert expenses to a different currency
             elif choice == 'Convert money to a different currency':
                 to_currency = str(questionary.text("Enter the currency you want to convert all expenses to (e.g. USD, EUR):\n> ").ask()).lower().strip()

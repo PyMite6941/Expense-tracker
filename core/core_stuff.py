@@ -259,11 +259,12 @@ class ExpenseTracker():
         }
         # Add and write new income
         incomeList.append(new_income)
+        data['income'] = incomeList
         self.write_file(data)
         return {'success':True,'message':'Income recorded successfully'}
 
     # Edit income data
-    def edit_income(self,expense_id:int,price:Optional[float]=None,purchased:Optional[str]=None,tags:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
+    def edit_income(self,expense_id:int,amount:Optional[float]=None,purchased:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -275,8 +276,8 @@ class ExpenseTracker():
             for income in incomeList:
                 if income['id'] == expense_id:
                     count += 1
-                    if price is not None:
-                        income['amount'] = price
+                    if amount is not None:
+                        income['amount'] = amount
                     if purchased is not None:
                         income['source'] = purchased
                     if date is not None:
@@ -463,7 +464,7 @@ class ExpenseTracker():
                 return {'success':False,'message':'No subscriptions to process.'}
             count = 0
             for subscription in subscriptionList:
-                if subscription['name'] == name:
+                if subscription['name'] == previous_name:
                     count += 1
                     if price is not None:
                         subscription['price'] = price
@@ -575,18 +576,50 @@ class ExpenseTracker():
             return {'success':False,'message':'No expenses to process'}
         # Loop through the expenseList list
         for expense in expenseList:
-            from_currency = to_currency
             # Only change the currency if the expense['currency'] doesn't match the to_currency
             if expense['currency'] != to_currency:
                 from_currency = expense['currency']
-                price_in_new_currency = self.convert_currency(expense['price'],from_currency,to_currency)
-                expense['price'] = round(price_in_new_currency,2)
+                result = self.convert_currency(expense['price'],from_currency,to_currency)
+                expense['price'] = round(result['rate'],2)
                 expense['currency'] = to_currency.lower()
         self.write_file(data)
-        return {'success':True,'message':f'Successfully converted {from_currency.upper()} -> {to_currency.upper()}'}
-    
-    def apply_rules(array:list):
-        with open('rules.json','rb') as file:
+        return {'success':True,'message':f'Successfully converted to {to_currency.upper()}'}
+
+    def check_for_duplicates(self,array:list) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        processedList = data[array]
+        # Look through the list for duplicates
+        count = 0
+        if array == 'expenses':
+            for item in processedList:
+                for item2 in processedList:
+                    if item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                        self.delete_expenses(item2['id'])
+                        count += 1
+        elif array == 'income':
+            for item in processedList:
+                for item2 in processedList:
+                    if item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                        self.delete_income(item2['id'])
+                        count += 1
+        elif array == 'budget':
+            for item in processedList:
+                for item2 in processedList:
+                    if item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
+                        self.delete_budget(item2['id'])
+                        count += 1
+        elif array == 'subscription':
+            for item in processedList:
+                for item2 in processedList:
+                    if item['name'] == item2['name'] and item['price'] == item2['price'] and item['startDate'] == item2['startDate'] and item['currency'] == item2['currency']:
+                        self.delete_subscription(item2['id'])
+                        count += 1
+        return {'success':True,'message':f'Removed {count} duplicates'}
+
+    def apply_rules(self,array:list):
+        with open('rules.json','r') as file:
             rules = json.load(file)
         for rule in rules:
             field = rule['field']

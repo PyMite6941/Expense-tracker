@@ -77,7 +77,7 @@ elif choice == 'Subscription':
         subscription_price = st.number_input('Subscription Price',min_value=0.0,step=0.01)
         subscription_currency = st.selectbox('Budget Currency',options=['USD','EUR','JPY','GBP','AUD','CAD','CHF','CNY','SEK','NZD','THB','INR','Other'])
         if st.form_submit_button('Add Subscription'):
-            results = st.session_state.tracker.edit_subscription(subscription_price,subscription_name,subscription_currency)
+            results = st.session_state.tracker.edit_subscription(subscription_name,price=subscription_price,currency=subscription_currency)
             if results['success']:
                 st.success(results['message'])
                 sync_data()
