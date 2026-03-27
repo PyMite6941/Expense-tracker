@@ -429,8 +429,17 @@ class Run:
                     show_data_in_bar_graph(data['subscriptions'],title='Subscriptions')
             # Get the function to remove duplicate entries
             elif choice == 'Delete duplicates':
-                list_choice = str(questionary.text("What entry type should be edited? (Expenses, Income, Budget, or Subscription)\n> ").ask()).lower().strip()
-                result = tracker.check_for_duplicates(list_choice)
+                list_choice = questionary.select(
+                    "What list should be checked?",
+                    choices=[
+                        "Expenses",
+                        "Income",
+                        "Budget",
+                        "Subscriptions",
+                    ],
+                    pointer='>',
+                ).ask()
+                result = tracker.check_for_duplicates(list_choice.lower())
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
             # Get the function to convert expenses to a different currency

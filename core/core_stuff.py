@@ -151,7 +151,7 @@ class ExpenseTracker():
             expenseList = data['expenses']
             # If the expenseList is empty do not continue
             if not expenseList:
-                return {'success':True,'message':'No expenses to process.'}
+                return {'success':False,'message':'No expenses to process.'}
             # Set counter to count how many times the expense['id'] is found
             count = 0
             # Loop through all of the expenses in the list
@@ -173,9 +173,8 @@ class ExpenseTracker():
                     # Change the currency and price if currency != None
                     if currency is not None:
                         from_curr = expense['currency']
-                        price = expense['price']
                         expense['currency'] = currency
-                        result = self.convert_currency(price,from_curr,expense['currency'])
+                        result = self.convert_currency(expense['price'],from_curr,expense['currency'])
                         if not result['success']:
                             return {'success':False,'message':result['message']}
                         expense['price'] = result['rate']
@@ -284,9 +283,8 @@ class ExpenseTracker():
                         income['date'] = date
                     if currency is not None:
                         from_curr = income['currency']
-                        amount = income['amount']
                         income['currency'] = currency
-                        result = self.convert_currency(amount,from_curr,income['currency'])
+                        result = self.convert_currency(income['amount'],from_curr,income['currency'])
                         if not result['success']:
                             return {'success':False,'message':result['message']}
                         income['amount'] = result['rate']
@@ -368,9 +366,8 @@ class ExpenseTracker():
                     budget['amount'] = amount
                 if currency is not None:
                     from_curr = budget['currency']
-                    amount = budget['amount']
                     budget['currency'] = currency
-                    result = self.convert_currency(amount,from_curr,budget['currency'])
+                    result = self.convert_currency(budget['amount'],from_curr,budget['currency'])
                     if not result['success']:
                         return {'success':False,'message':result['message']}
                     budget['amount'] = result['rate']
@@ -472,9 +469,8 @@ class ExpenseTracker():
                         subscription['name'] = name
                     if currency is not None:
                         from_curr = subscription['currency']
-                        price = subscription['price']
                         subscription['currency'] = currency
-                        result = self.convert_currency(price,from_curr,subscription['currency'])
+                        result = self.convert_currency(subscription['price'],from_curr,subscription['currency'])
                         if not result['success']:
                             return {'success':False,'message':result['message']}
                         subscription['price'] = result['rate']
@@ -580,6 +576,8 @@ class ExpenseTracker():
             if expense['currency'] != to_currency:
                 from_currency = expense['currency']
                 result = self.convert_currency(expense['price'],from_currency,to_currency)
+                if not result['success']:
+                    return {'success':False,'message':result['message']}
                 expense['price'] = round(result['rate'],2)
                 expense['currency'] = to_currency.lower()
         self.write_file(data)
@@ -595,26 +593,26 @@ class ExpenseTracker():
         if array == 'expenses':
             for item in processedList:
                 for item2 in processedList:
-                    if item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
                         self.delete_expenses(item2['id'])
                         count += 1
         elif array == 'income':
             for item in processedList:
                 for item2 in processedList:
-                    if item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
                         self.delete_income(item2['id'])
                         count += 1
         elif array == 'budget':
             for item in processedList:
                 for item2 in processedList:
-                    if item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
-                        self.delete_budget(item2['id'])
+                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
+                        self.delete_budget(item2['category'])
                         count += 1
-        elif array == 'subscription':
+        elif array == 'subscriptions':
             for item in processedList:
                 for item2 in processedList:
-                    if item['name'] == item2['name'] and item['price'] == item2['price'] and item['startDate'] == item2['startDate'] and item['currency'] == item2['currency']:
-                        self.delete_subscription(item2['id'])
+                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['name'] == item2['name'] and item['price'] == item2['price'] and item['startDate'] == item2['startDate'] and item['currency'] == item2['currency']:
+                        self.delete_subscription(item2['name'])
                         count += 1
         return {'success':True,'message':f'Removed {count} duplicates'}
 

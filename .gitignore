@@ -1,5 +1,6 @@
 .venv
 .claude
+.devcontainer
 __pycache__
 data.json
 rules.json
