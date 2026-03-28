@@ -644,11 +644,39 @@ class ExpenseTracker():
         return {'success':True,'message':'Goal successfully deleted'}
 
     # Add recurring expense
-    def add_recurring_expense(self,amount:Optional[float],category:Optional[str],tags:Optional[str],currency:Optional[str],date:Optional[str]) -> Dict[bool,str]:
+    def add_recurring_expense(self,amount:Optional[float],purchased:Optional[str],tags:Optional[str],currency:Optional[str]) -> Dict[bool,str]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
-        expenseList = data['expenses']
+        recurringList = data['recurring_expenses']
+        # Create recurring expense
+        expense = {
+            'amount': amount,
+            'purchased': purchased,
+            'tags': tags,
+            'currency': currency,
+        }
+        recurringList.append(expense)
+        data['recurring_expense'] = recurringList
+        self.write_file(data)
+        return {'success':True,'message':'Successfully added recurring expense'}
+
+    # Add recurring income
+    def add_recurring_income(self,amount:Optional[float],source:Optional[str],currency:Optional[str]) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        recurringList = data['recurring_income']
+        # Create recurring income
+        income = {
+            'amount': amount,
+            'source': source,
+            'currency': currency,
+        }
+        recurringList.append(income)
+        data['recurring_income'] = recurringList
+        self.write_file(data)
+        return {'success':True,'message':'Successfully added recurring income'}
     
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
