@@ -13,7 +13,7 @@ This program is 100% human programmed however professional debugging is done tha
 
 Any files to be processed need to be put in the same directory or uploaded through the web ui.
 
-## SETUP THE CLI INTERFACE APP
+## SETUP THE PROGRAM
 
 First run the virtual environment (venv) setup:
 `python -m venv {your_venv_directory_name}`
