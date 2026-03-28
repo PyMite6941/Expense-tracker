@@ -13,7 +13,7 @@ init_st()
 st.title('Add Material')
 
 # Get input on what is to be added
-choice = st.selectbox('What to add?',options=['Expenses','Income','Budget','Subscription'])
+choice = st.selectbox('What to add?',options=['Expenses','Income','Budget','Subscription','Goal'])
 if choice == 'Expenses':
     # Add expenses
     with st.form('add_expenses_form'):
@@ -81,3 +81,7 @@ elif choice == 'Subscription':
                 st.rerun()
             else:
                 st.error(results['message'])
+elif choice == 'Goal':
+    # Add Goal
+    with st.form('add_goal_form'):
+        pass

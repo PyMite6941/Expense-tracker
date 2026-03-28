@@ -21,7 +21,7 @@ class ExpenseTracker():
                 data = json.load(file)
             # If not organized right then organize it right
             if not isinstance(data,dict):
-                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[]}
+                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[]}
             # If not data list then create it
             else:
                 if 'expenses' not in data:
@@ -32,14 +32,16 @@ class ExpenseTracker():
                     data['budget'] = []
                 if 'subscriptions' not in data:
                     data['subscriptions'] = []
+                if 'goals' not in data:
+                    data['goals'] = []
             return {'success':True,'data':data}
         # If FileNotFound or JSONDecodeError then return empty list
         except FileNotFoundError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[]}
             self.write_file(data)
             return {'success':True,'data':data}
         except json.JSONDecodeError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[]}
             self.write_file(data)
             return {'success':True,'data':data}
     
@@ -495,21 +497,21 @@ class ExpenseTracker():
         return {'success':True,'data':subscriptionList}
     
     # Search subscriptions
-    def view_filtered_subscriptions(self,subscriptionName:Optional[str]=None,subscriptionPrice:Optional[float]=None) -> Dict[str,Any]:
+    def view_filtered_subscriptions(self,subscriptionName:Optional[str]=None,subscriptionPrice:Optional[float]=None,subscriptionCurrency:Optional[str]=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
         subscriptionList = data['subscriptions']
         if not subscriptionList:
             return {'success':False,'message':'No subscriptions found'}
-        filtered_subscriptions = [subscription for subscription in subscriptionList if (subscriptionName is not None and subscriptionName == subscription['name']) or (subscriptionPrice is not None and subscriptionPrice == subscription['price'])]
+        filtered_subscriptions = [subscription for subscription in subscriptionList if (subscriptionName is not None and subscriptionName == subscription['name']) or (subscriptionPrice is not None and subscriptionPrice == subscription['price']) or (subscriptionCurrency is not None and subscriptionCurrency.upper() == subscription['currency'].upper())]
         if not filtered_subscriptions:
             return {'success':False,'message':'No subscriptions found'}
         else:
             return {'success':True,'data':filtered_subscriptions}
     
     # Delete subscriptions
-    def delete_subscription(self,subscription_category:str) -> Dict[str,Any]:
+    def delete_subscription(self,subscription_name:str) -> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -521,8 +523,8 @@ class ExpenseTracker():
             deleteSubscription = ''
             # Loop through all of the subscriptions in the list
             for subscription in subscriptionList:
-                # If the subscription category matches delete the subscription from the list
-                if subscription['name'] == subscription_category:
+                # If the subscription name matches delete the subscription from the list
+                if subscription['name'] == subscription_name:
                     deleteSubscription = subscription
             # If deleteSubscription == '' after the loop then return error
             if deleteSubscription == '':
@@ -534,6 +536,101 @@ class ExpenseTracker():
         except ValueError:
             return {'success':False,'message':'Invalid category format'}
     
+    # Create a goal
+    def create_goal(self,name:Optional[str],amount:Optional[float],startDate:Optional[str],monthContribution:Optional[float],currency:Optional[str]) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        goalList = data['goals']
+        # If not goals
+        if not goalList:
+            goalList = []
+        # Add goal
+        goal = {
+            'id':self.assign_id(goalList),
+            'name':name,
+            'amount':amount,
+            'startDate':startDate,
+            'monthContribution':monthContribution,
+            'currency':currency,
+        }
+        goalList.append(goal)
+        data['goals'] = goalList
+        self.write_file(data)
+        return {'success':True,'message':'Successfully created the goal'}
+    
+    # Edit a goal
+    def edit_goal(self,name:Optional[str],new_name:Optional[str]=None,amount:Optional[float]=None,startDate:Optional[str]=None,monthContribution:Optional[float]=None,currency:Optional[str]=None) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        goalList = data['goals']
+        # If not goals
+        if not goalList:
+            return {'success':False,'message':'No goals to edit'}
+        # Search for the goal
+        count = 0
+        for item in goalList:
+            if item['name'] == name:
+                if new_name is not None:
+                    item['name'] = new_name
+                if amount is not None:
+                    item['amount'] = amount
+                if startDate is not None:
+                    item['startDate'] = startDate
+                if monthContribution is not None:
+                    item['monthContribution'] = monthContribution
+                if currency is not None:
+                    item['currency'] = currency
+                count += 1
+        if count < 1:
+            return {'success':False,'message':'No goal found'}
+        data['goals'] = goalList
+        self.write(data)
+        return {'success':True,'message':'Successfully edited the goal'}
+    
+    # View all goals
+    def view_all_goals(self) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        goalList = data['goals']
+        return {'success':True,'data':goalList}
+    
+    # View filtered goals
+    def view_filtered_goals(self,name:Optional[str]=None,amount:Optional[float]=None,startDate:Optional[str]=None,monthContribution:Optional[float]=None,currency:Optional[str]=None) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        goalList = data['goals']
+        # If not goals
+        if not goalList:
+            return {'success':False,'message':'No goals found'}
+        filtered_goals = [goal for goal in goalList if (name is not None and goal['name'] == name) and (amount is not None and goal['amount'] == amount) and (startDate is not None and goal['startDate'] == startDate) and (monthContribution is not None and goal['monthContribution'] == monthContribution) and (currency is not None and goal['currency'] == currency)]
+        if not filtered_goals:
+            return {'success':False,'message':'No goals found with these parameters'}
+        return {'success':True,'data':filtered_goals}
+    
+    # Delete goals
+    def delete_goals(self,id:int) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        goalList = data['goals']
+        # If not goals
+        if not goalList:
+            return {'success':False,'message':'No goals to delete'}
+        deleteGoal = ''
+        for goal in goalList:
+            if goal['id'] == id:
+                deleteGoal = goal
+        if deleteGoal == '':
+            return {'success':False,'message':'No goal with this ID was found'}
+        goalList.remove(deleteGoal)
+        data['goals'] = goalList
+        self.write_file(data)
+        return {'success':True,'message':'Goal successfully deleted'}
+
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
         # Define the list to process
@@ -624,7 +721,7 @@ class ExpenseTracker():
             operator = rule['operator']
 
 
-__version__ = "v1.0"
+__version__ = "v1.1"
 
 # For getting web pages such as the GitHub page for this project
 import requests

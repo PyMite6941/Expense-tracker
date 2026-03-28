@@ -45,6 +45,22 @@ class Run:
                     questionary.Separator('--- Budgeting ---'),
                     questionary.Choice('Create a budget'),
                     questionary.Choice('Edit budget'),
+                    questionary.Choice('View all budgets'),
+                    questionary.Choice('View filtered budgets'),
+                    questionary.Choice('Delete budgets'),
+                    questionary.Separator('--- Subscriptions ---'),
+                    questionary.Choice('Add a subscription'),
+                    questionary.Choice('Edit a subscription'),
+                    questionary.Choice('View all subscriptions'),
+                    questionary.Choice('View filtered subscriptions'),
+                    questionary.Choice('Delete a subscription'),
+                    questionary.Choice('--- Goals ---'),
+                    questionary.Choice('Add a goal'),
+                    questionary.Choice('Edit a goal'),
+                    questionary.Choice('View all goals'),
+                    questionary.Choice('View filtered goals'),
+                    questionary.Choice('View total goal progress'),
+                    questionary.Choice('Delete goals'),
                     questionary.Separator('--- Cool Functions ---'),
                     questionary.Choice('Import data from a .csv file'),
                     questionary.Choice('Export data to a .csv file'),
@@ -215,7 +231,7 @@ class Run:
                 result = tracker.delete_expenses(expense_id)
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
-            # View total income
+            # Get the function to view total income
             elif choice == 'View total Income':
                 result = tracker.view_income()
                 if not result['success']:
@@ -235,7 +251,7 @@ class Run:
                 for income in incomeList:
                     table.add_row(str(income['id']),str(income['amount']),income['source'],str(income['date']),str(income['currency']).lower(),str(income['notes']))
                 console.print(table)
-            # Filter total income
+            # Get the function to filter total income
             elif choice == 'Filter total Income':
                 choice = questionary.checkbox(
                     "What should be filtered?\nUse [space] to select options and [enter] to confirm your choice.",
@@ -276,7 +292,7 @@ class Run:
                 for income in incomeList:
                     table.add_row(str(income['id']),str(income['amount']),income['source'],str(income['date']),str(income['currency']).lower(),str(income['notes']))
                 console.print(table)
-            # Add new income
+            # Get the function to add income
             elif choice == 'Add Income':
                 # Loop through the add expenses stuff for amount of expenses desired to be created
                 amount_of_expenses = int(questionary.text("How many expenses do you want to add?\n> ").ask())
@@ -304,7 +320,7 @@ class Run:
                         notes = None
                     result = tracker.add_income(amount,source,date,currency,notes)
                     console.print(f"[bold green]{result['message']}[/bold green].")
-            # Edit income
+            # Get the function to edit income
             elif choice == 'Edit Income':
                 expense_id = int(questionary.text("What ID should be edited?\n> ").ask())
                 choice = questionary.checkbox(
@@ -337,7 +353,7 @@ class Run:
                 result = tracker.edit_income(expense_id,amount if amount is not None else None,source if source is not None else None,date if date is not None else None,currency if currency is not None else None,notes if notes is not None else None)
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
-            # Delete income
+            # Get the function to delete income
             elif choice == 'Delete Income':
                 income_id = int(questionary.text("What ID should be deleted?\n> ").ask())
                 result = tracker.delete_income(income_id)
@@ -362,6 +378,219 @@ class Run:
                 result = tracker.update_budget(budgetCategory,amount=newAmount)
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
+            # Get the function to view all budgets
+            elif choice == 'View all budgets':
+                result = tracker.view_all_budget()
+                if not result['success']:
+                    console.print(f"[bold red]{result['message']}[/bold red].")
+                    continue
+                budgetList = result['data']
+                if not budgetList:
+                    console.print("[bold red]No budget data found[/bold red].")
+                    continue
+                table = Table(title="Total Budgets",header_style='blue')
+                table.add_column("Amount",style='white')
+                table.add_column("Category",style='green')
+                table.add_column("Currency",style='red')
+                for budget in budgetList:
+                    table.add_row(str(budget['amount']),budget['category'],str(budget['currency']).upper())
+                console.print(table)
+            # Get the function to delete budgets
+            elif choice == 'Delete budgets':
+                budget_category = int(questionary.text("What category should be deleted?\n> ").ask())
+                result = tracker.delete_budget(budget_category)
+                color = 'green' if result['success'] else 'red'
+                console.print(f"[bold {color}]{result['message']}[/bold {color}].")
+            # Get the function to add subscriptions
+            elif choice == 'Add a subscription':
+                amount_of_subscriptions = int(questionary.text("How many subscriptions do you want to add?\n> ").ask())
+                for _ in range(amount_of_subscriptions):
+                    name = str(questionary.text("What is the name of the subscription?\n> ").ask())
+                    price = str(questionary.text("How much is the subscription?\n> ").ask())
+                    currency = str(questionary.text("What currency is the subscription in? (default is usd)\n> ").ask())
+                    startDate = str(questionary.text("When did the subscription start? (yyyy-mm-dd)\n> ").ask())
+                    result = tracker.add_subscriptions(name,price,currency,startDate)
+            # Get the function to edit subscriptions
+            elif choice == 'Edit a subscription':
+                previous_name = str(questionary.text("What is the name of the subscription to be edited?\n> ").ask())
+                choice = questionary.checkbox(
+                    "What should be filtered?\nUse [space] to select options and [enter] to confirm your choice.",
+                    choices=[
+                        'Amount',
+                        'Name',
+                        'Start Date',
+                        'Currency',
+                    ],
+                ).ask()
+                amount,name,startDate,currency = None,None,None,None
+                if 'Amount' in choice:
+                    amount = float(questionary.text("How much is the new cost?\n> ").ask())
+                if 'Name' in choice:
+                    name = str(questionary.text("What is the new name of the subscription?\n> ").ask())
+                if 'Start Date' in choice:
+                    startDate = str(questionary.text("What is the new start date? (default is today)\n> ").ask())
+                    if not startDate.strip():
+                        startDate = datetime.now().strftime('%Y-%m-%d')
+                if 'Currency' in choice:
+                    currency = str(questionary.text("What is the currency the subscription is in? (default is USD)\n> ").ask())
+                    if not currency.strip():
+                        currency = 'usd'
+                results = tracker.edit_subscription(previous_name,amount,name,currency,startDate)
+                color = 'green' if results['success'] else 'red'
+                console.print(f"[bold {color}]{results['message']}[/bold {color}].")
+            # Get the function to view all subscriptions
+            elif choice == 'View all subscriptions':
+                result = tracker.view_subscriptions()
+                if not result['success']:
+                    console.print(f"[bold red]{result['message']}[/bold red].")
+                    continue
+                subscriptionList = result['data']
+                if not subscriptionList:
+                    console.print("[bold red]No subscription data found[/bold red].")
+                    continue
+                table = Table(title="Total Subscriptions",header_style='blue')
+                table.add_column("Name",style="white")
+                table.add_column("Amount",style='gold')
+                table.add_column("Category",style='green')
+                table.add_column("Currency",style='red')
+                for subscription in subscriptionList:
+                    table.add_row(subscription['name'],str(subscription['amount']),subscription['category'],str(subscription['currency']).upper())
+                console.print(table)
+            # Get the function to view filtered subscriptions
+            elif choice == 'View filtered subscriptions':
+                choice = questionary.checkbox(
+                    "What should be filtered?\nUse [space] to select options and [enter] to confirm your choice.",
+                    choices=[
+                        "Name",
+                        "Amount",
+                        "Currency",
+                    ],
+                    pointer='>'                        
+                )
+                name,amount,currency = None,None,None
+                if 'Name' in choice:
+                    name = str(questionary.text("What is the name of the subscription?\n> ").ask())
+                if 'Amount' in choice:
+                    amount = str(questionary.text("What is the amount spent?\n> ").ask())
+                if 'Currency' in choice:
+                    currency = str(questionary.text("What is the currency the subscription is in?\n> ").ask())
+                results = tracker.view_filtered_subscriptions(name,amount,currency)
+                if not results['success'] or not results['data']:
+                    console.print(f"[bold red]{results['message']}[/bold red].")
+                table = Table(title="Total Subscriptions",header_style='blue')
+                table.add_column("Name",style="white")
+                table.add_column("Amount",style='gold')
+                table.add_column("Category",style='green')
+                table.add_column("Currency",style='red')
+                for subscription in results['data']:
+                    table.add_row(subscription['name'],str(subscription['amount']),subscription['category'],str(subscription['currency']).upper())
+                console.print(table)
+            # Get the function to delete a subscription
+            elif choice == 'Delete a subscription':
+                name = str(questionary.text("What is the name of the subscription?\n> ").ask())
+                results = tracker.delete_subscription(name)
+                color = 'green' if results['success'] else 'red'
+                console.print(f"[bold {color}]{results['message']}[/bold {color}].")
+            # Get the function to add a goal
+            elif choice == 'Add a goal':
+                amount_of_goals = int(questionary.text("How many goals do you want to create?\n> ").ask())
+                for _ in range(amount_of_goals):
+                    name = str(questionary.text("What is the name of the goal?\n> ").ask())
+                    amount = float(questionary.text("What is the amount desired to earn in the goal?").ask())
+                    startDate = str(questionary.text("What is the start date of this goal? (default is today)\n> ").ask())
+                    monthContribution = float(questionary.text("What is the monthly contribution from the inputted income?\n> ").ask())
+                    currency = str(questionary.text("What is the currency this goal uses?\n> ").ask())
+                    results = tracker.create_goal(name,amount,startDate,monthContribution,currency)
+                    color = 'green' if results['success'] else 'red'
+                    console.print(f"[bold {color}]{results['message']}[/bold {color}].")
+            # Get the function to edit a goal
+            elif choice == 'Edit a goal':
+                previous_name = str(questionary.text("What is the name of the subscription to be edited?\n> ").ask())
+                choice = questionary.checkbox(
+                    "What should be edited?\nUse [space] to select options and [enter] to confirm your choice.",
+                    choices=[
+                        'Name',
+                        'Amount',
+                        'Start Date',
+                        'Monthly Contribution',
+                        'Currency',
+                    ],
+                ).ask()
+                amount,name,startDate,monthlyContribution,currency = None,None,None,None,None
+                if 'Amount' in choice:
+                    amount = float(questionary.text("How much is the new cost?\n> ").ask())
+                if 'Name' in choice:
+                    name = str(questionary.text("What is the new name of the goal?\n> ").ask())
+                if 'Start Date' in choice:
+                    startDate = str(questionary.text("What is the new start date? (default is today)\n> ").ask())
+                    if not startDate.strip():
+                        startDate = datetime.now().strftime('%Y-%m-%d')
+                if 'Monthly Contribution' in choice:
+                    monthContribution = float(questionary.text("What is the new monthly contribution?\n> ").ask())
+                if 'Currency' in choice:
+                    currency = str(questionary.text("What is the currency the goal is in? (default is USD)\n> ").ask())
+                    if not currency.strip():
+                        currency = 'usd'
+                results = tracker.edit_goal(previous_name,name,amount,startDate,monthContribution,currency)
+                color = 'green' if results['success'] else 'red'
+                console.print(f"[bold {color}]{results['message']}[/bold {color}].")
+            # Get the function to view all goals
+            elif choice == 'View all goals':
+                results = tracker.view_all_goals()
+                if not results['success'] or not results['data']:
+                    console.print(f"[bold red]{results['message']}[/bold red].")
+                    continue
+                table = Table(title="Total Goals",header_style='blue')
+                table.add_column("Name",style="white")
+                table.add_column("Amount",style='gold')
+                table.add_column("Start Date",style='green')
+                table.add_column("Monthly Contribution",style="orange")
+                table.add_column("Currency",style='red')
+                for goal in results['data']:
+                    table.add_row(goal['name'],str(goal['amount']),goal['startDate'],str(goal['monthContribution']),str(goal['currency']).upper())
+                console.print(table)
+            # Get the function to view filtered goals
+            elif choice == 'View filtered goals':
+                choice = questionary.checkbox(
+                    "What should be filtered?\nUse [space] to select options and [enter] to confirm your choice.",
+                    choices=[
+                        'Name',
+                        'Amount',
+                        'Start Date',
+                        'Monthly Contribution',
+                        'Currency',
+                    ],
+                ).ask()
+                name,amount,startDate,monthContribution,currency = None,None,None,None,None
+                if 'Name' in choice:
+                    name = str(questionary.text("What is the name of the goal?\n> ").ask())
+                if 'Amount' in choice:
+                    amount = float(questionary.text("What is the amount of the goal?\n> ").ask())
+                if 'Start Date' in choice:
+                    startDate = str(questionary.text("What is the goal's start date? (yyyy-mm-dd)\n> ").ask())
+                if 'Monthly Contribution' in choice:
+                    monthContribution = float(questionary.text("What amount is the monthly contribution?\n> ").ask())
+                results = tracker.view_filtered_goals(name,amount,startDate,monthContribution,currency)
+                if not results['success'] or not results['data']:
+                    console.print(f"[bold red]{results['message']}[/bold red].")
+                table = Table(title="Total Goals",header_style='blue')
+                table.add_column("Name",style="white")
+                table.add_column("Amount",style='gold')
+                table.add_column("Start Date",style='green')
+                table.add_column("Monthly Contribution",style="orange")
+                table.add_column("Currency",style='red')
+                for goal in results['data']:
+                    table.add_row(goal['name'],str(goal['amount']),goal['startDate'],str(goal['monthContribution']),str(goal['currency']).upper())
+                console.print(table)
+            # Get the function to view total goal progress
+            elif choice == 'View total goal progress':
+                pass
+            # Get the function to delete a goal
+            elif choice == 'Delete goals':
+                goal_id = str(questionary.text("What is the id of the goal?\n> ").ask())
+                results = tracker.delete_goals(goal_id)
+                color = 'green' if results['success'] else 'red'
+                console.print(f"[bold {color}]{results['message']}[/bold {color}].")
             # Get the function to import expenses from a .csv file
             elif choice == 'Import data from a .csv file':
                 filename = str(questionary.text("What is the file name (including .csv) ?\n> ").ask())
