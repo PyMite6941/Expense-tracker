@@ -34,14 +34,26 @@ class ExpenseTracker():
                     data['subscriptions'] = []
                 if 'goals' not in data:
                     data['goals'] = []
+                if 'recurring_expenses' not in data:
+                    data['recurring_expenses'] = []
+                if 'recurring_income' not in data:
+                    data['recurring_income'] = []
             return {'success':True,'data':data}
         # If FileNotFound or JSONDecodeError then return empty list
         except FileNotFoundError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
             self.write_file(data)
             return {'success':True,'data':data}
         except json.JSONDecodeError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
+            return {'success':True,'data':data}
+        # If FileNotFound or JSONDecodeError then return empty list
+        except FileNotFoundError:
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'recurring_expenses':[],'recurring_income':[]}
+            self.write_file(data)
+            return {'success':True,'data':data}
+        except json.JSONDecodeError:
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'recurring_expenses':[],'recurring_income':[]}
             self.write_file(data)
             return {'success':True,'data':data}
     
@@ -631,6 +643,13 @@ class ExpenseTracker():
         self.write_file(data)
         return {'success':True,'message':'Goal successfully deleted'}
 
+    # Add recurring expense
+    def add_recurring_expense(self,amount:Optional[float],category:Optional[str],tags:Optional[str],currency:Optional[str],date:Optional[str]) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        expenseList = data['expenses']
+    
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
         # Define the list to process
