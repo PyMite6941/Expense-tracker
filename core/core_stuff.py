@@ -21,7 +21,7 @@ class ExpenseTracker():
                 data = json.load(file)
             # If not organized right then organize it right
             if not isinstance(data,dict):
-                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[]}
+                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
             # If not data list then create it
             else:
                 if 'expenses' not in data:
@@ -657,9 +657,17 @@ class ExpenseTracker():
             'currency': currency,
         }
         recurringList.append(expense)
-        data['recurring_expense'] = recurringList
+        data['recurring_expenses'] = recurringList
         self.write_file(data)
         return {'success':True,'message':'Successfully added recurring expense'}
+
+    # View all recurring expenses
+    def view_recurring_expenses(self) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        recurringList = data['recurring_expenses']
+        return {'success':True,'data':recurringList}
 
     # Add recurring income
     def add_recurring_income(self,amount:Optional[float],source:Optional[str],currency:Optional[str]) -> Dict[bool,str]:
@@ -677,6 +685,14 @@ class ExpenseTracker():
         data['recurring_income'] = recurringList
         self.write_file(data)
         return {'success':True,'message':'Successfully added recurring income'}
+    
+    # View all recurring income
+    def view_recurring_income(self) -> Dict[bool,str]:
+        # Define the list to process
+        result = self.open_file()
+        data = result['data']
+        recurringList = data['recurring_income']
+        return {'success':True,'data':recurringList}
     
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:

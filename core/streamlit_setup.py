@@ -27,6 +27,18 @@ def init_st():
     if 'subscriptions' not in st.session_state:
         results = st.session_state.tracker.view_subscriptions()
         st.session_state.subscriptions = results['data'] if results['success'] else []
+    # If goals not in session state then import
+    if 'goals' not in st.session_state:
+        results = st.session_state.tracker.view_goals()
+        st.session_state.goals = results['data'] if results['success'] else []
+    # If recurring expenses not in session state then import
+    if 'recurring_expenses' not in st.session_state:
+        results = st.session_state.tracker.view_recurring_expenses()
+        st.session_state.recurring_expenses = results['data'] if results['success'] else []
+    # If recurring income not in session state then import
+    if 'recurring_income' not in st.session_state:
+        results = st.session_state.tracker.view_recurring_income()
+        st.session_state.recurring_income = results['data'] if results['success'] else []
     if 'selected_for_deletion' not in st.session_state:
         st.session_state.selected_for_deletion = []
     if 'current_month' not in st.session_state:
@@ -36,7 +48,7 @@ def init_st():
 
 # Refresh the data in the session state
 def sync_data():
-    key_to_reset = ['expenses','income','budget','subscriptions']
+    key_to_reset = ['expenses','income','budget','subscriptions','goals','recurring_expenses','recurring_income']
     for key in key_to_reset:
         if key in st.session_state:
             del st.session_state[key]

@@ -31,14 +31,15 @@ else:
 # Display budget alerts if any
 budget_totals = {}
 for expense in st.session_state.expenses:
-    tag = expense['tags']
-    budget_totals[tag] = budget_totals.get(tag,0) + expense['price']
+    if expense['date'][:7] == st.session_state.current_month:
+        tag = expense['tags']
+        budget_totals[tag] = budget_totals.get(tag,0) + expense['price']
 for budget in st.session_state.budget:
     total_spent = budget_totals.get(budget['category'],0)
     limit = float(budget['amount'])
     if limit < total_spent:
-        st.warning(f"Budget {budget['category']} has been surpassed by {total_spent-limit}")
+        st.warning(f"{budget['category']} budget has been surpassed by {total_spent-limit:.2f}.")
     elif limit == total_spent:
-        st.write(f"Budget {budget['category']} may be surpassed")
+        st.warning(f"{budget['category']} budget has reached its limit.")
 
 st.divider()
