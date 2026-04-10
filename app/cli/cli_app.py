@@ -471,7 +471,7 @@ class Run:
                 if 'Name' in choice:
                     name = str(questionary.text("What is the name of the subscription?\n> ").ask())
                 if 'Amount' in choice:
-                    amount = str(questionary.text("What is the amount spent?\n> ").ask())
+                    amount = float(questionary.text("What is the amount spent?\n> ").ask())
                 if 'Currency' in choice:
                     currency = str(questionary.text("What is the currency the subscription is in?\n> ").ask())
                 results = tracker.view_filtered_subscriptions(name,amount,currency)
@@ -517,7 +517,7 @@ class Run:
                         'Currency',
                     ],
                 ).ask()
-                amount,name,startDate,monthlyContribution,currency = None,None,None,None,None
+                amount,name,startDate,monthContribution,currency = None,None,None,None,None
                 if 'Amount' in choice:
                     amount = float(questionary.text("How much is the new cost?\n> ").ask())
                 if 'Name' in choice:

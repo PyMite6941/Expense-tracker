@@ -134,9 +134,11 @@ elif choice == 'Goal':
     with st.form('add_goal_form'):
         goal_name = st.text_area('Goal Name')
         goal_target_amount = st.number_input('Goal Target Amount',min_value=0.0,step=0.01)
+        goal_monthly_contribution = st.number_input('Monthly Contribution',min_value=0.0,step=0.01)
+        goal_start_date = st.date_input('Goal Start Date')
         goal_currency = st.selectbox('Goal Currency',options=['USD','EUR','JPY','GBP','AUD','CAD','CHF','CNY','SEK','NZD','THB','INR','Other'])
         if st.form_submit_button('Add Goal'):
-            results = st.session_state.tracker.create_goal(goal_name,goal_target_amount,goal_currency)
+            results = st.session_state.tracker.create_goal(goal_name,goal_target_amount,str(goal_start_date),goal_monthly_contribution,goal_currency)
             if results['success']:
                 st.success(results['message'])
                 sync_data()

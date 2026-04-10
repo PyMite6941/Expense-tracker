@@ -118,7 +118,7 @@ class ExpenseTracker():
         if not expenseList:
             return {'success':False,'message':'No expenses found'}
         # Loop through all expenses if the filter pertains to price
-        filteredExpenses = [expense for expense in expenseList if (price is not None and expense['price'] == price) or (purchased is not None and expense['purchased'].lower() == purchased.lower()) or (tags is not None and expense['tags'].lower() == tags.lower()) or (currency is not None and expense['currency'].lower() == currency.lower()) or (date is not None and expense['date'] == date)]
+        filteredExpenses = [expense for expense in expenseList if (price is None or expense['price'] == price) and (purchased is None or expense['purchased'].lower() == purchased.lower()) and (tags is None or expense['tags'].lower() == tags.lower()) and (currency is None or expense['currency'].lower() == currency.lower()) and (date is None or expense['date'] == date)]
         if filteredExpenses:
             return {'success':True,'data':filteredExpenses}
         else:
@@ -238,7 +238,7 @@ class ExpenseTracker():
         data = result['data']
         incomeList = data['income']
         # Loop through all expenses if the filter pertains to price
-        filteredIncome = [income for income in incomeList if (amount is not None and income['amount'] == amount) or (source is not None and income['source'].lower() == source.lower()) or (currency is not None and income['currency'].lower() == currency.lower()) or (date is not None and income['date'] == date)]
+        filteredIncome = [income for income in incomeList if (amount is None or income['amount'] == amount) and (source is None or income['source'].lower() == source.lower()) and (currency is None or income['currency'].lower() == currency.lower()) and (date is None or income['date'] == date)]
         if filteredIncome:
             return {'success':True,'data':filteredIncome}
         else:
@@ -340,6 +340,7 @@ class ExpenseTracker():
             budgetList = []
         # Create the new budget
         newBudget = {
+            'id': self.assign_id(budgetList),
             'category':category,
             'amount':amount,
             'currency':currency,
@@ -445,6 +446,7 @@ class ExpenseTracker():
             subscriptionList = []
         # Add subscription
         subscription = {
+            'id': self.assign_id(subscriptionList),
             'name': subscription_name,
             'price': subscription_price,
             'currency': currency,
@@ -456,7 +458,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Subscription successfully added'}
     
     # Edit subscriptions
-    def edit_subscription(self,previous_name:Optional[float],price:Optional[float]=None,name:Optional[str]=None,currency:Optional[str]=None,start_date:Optional[str]=None)-> Dict[str,Any]:
+    def edit_subscription(self,previous_name:Optional[str],price:Optional[float]=None,name:Optional[str]=None,currency:Optional[str]=None,start_date:Optional[str]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -508,7 +510,7 @@ class ExpenseTracker():
         subscriptionList = data['subscriptions']
         if not subscriptionList:
             return {'success':False,'message':'No subscriptions found'}
-        filtered_subscriptions = [subscription for subscription in subscriptionList if (subscriptionName is not None and subscriptionName == subscription['name']) or (subscriptionPrice is not None and subscriptionPrice == subscription['price']) or (subscriptionCurrency is not None and subscriptionCurrency.upper() == subscription['currency'].upper())]
+        filtered_subscriptions = [subscription for subscription in subscriptionList if (subscriptionName is None or subscriptionName == subscription['name']) and (subscriptionPrice is None or subscriptionPrice == subscription['price']) and (subscriptionCurrency is None or subscriptionCurrency.upper() == subscription['currency'].upper())]
         if not filtered_subscriptions:
             return {'success':False,'message':'No subscriptions found'}
         else:
@@ -613,7 +615,7 @@ class ExpenseTracker():
         # If not goals
         if not goalList:
             return {'success':False,'message':'No goals found'}
-        filtered_goals = [goal for goal in goalList if (name is not None and goal['name'] == name) and (amount is not None and goal['amount'] == amount) and (startDate is not None and goal['startDate'] == startDate) and (monthContribution is not None and goal['monthContribution'] == monthContribution) and (currency is not None and goal['currency'] == currency)]
+        filtered_goals = [goal for goal in goalList if (name is None or goal['name'] == name) and (amount is None or goal['amount'] == amount) and (startDate is None or goal['startDate'] == startDate) and (monthContribution is None or goal['monthContribution'] == monthContribution) and (currency is None or goal['currency'] == currency)]
         if not filtered_goals:
             return {'success':False,'message':'No goals found with these parameters'}
         return {'success':True,'data':filtered_goals}
@@ -700,7 +702,7 @@ class ExpenseTracker():
         listToProcess.extend(newData)
         data[listName] = listToProcess
         self.write_file(data)
-        return {'success':True,'message':f'Imported {filename}.csv successfully'}
+        return {'success':True,'message':f'Imported {filename} successfully'}
 
     # Export expenses to a .csv file
     def export_to_csv(self,listName:str,filename:str) -> Dict[str,Any]:
@@ -714,7 +716,7 @@ class ExpenseTracker():
         # Write .csv file
         df = pd.DataFrame(listToProcess)
         df.to_csv(filename,index=False)
-        return {'success':True,'message':f'Wrote {listName} to .csv','data':df}
+        return {'success':True,'message':f'Wrote {listName} to {filename}','data':df}
 
     # Convert expenses to a different currency
     def convert_prices_to_currency(self,to_currency:str) -> Dict[str,Any]:
@@ -745,30 +747,31 @@ class ExpenseTracker():
         processedList = data[array]
         # Look through the list for duplicates
         count = 0
-        if array == 'expenses' or array == 'income':
-            for item in processedList:
-                for item2 in processedList:
-                    if item['id'] != item2['id'] and item['id'] < item2['id']:
-                        if array == 'expenses':
-                            if item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
-                                self.delete_expenses(item2['id'])
-                                count += 1
-                        elif array == 'income':
-                            if item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
-                                self.delete_income(item2['id'])
-                                count += 1
-        elif array == 'budget':
-            for item in processedList:
-                for item2 in processedList:
-                    if item['category'] == item2['category']:
-                        self.delete_budget(item2['category'])
-                        count += 1
-        elif array == 'subscriptions':
-            for item in processedList:
-                for item2 in processedList:
-                    if item['name'] == item2['name']:
-                        self.delete_subscription(item2['name'])
-                        count += 1
+        for item in processedList:
+            for item2 in processedList:
+                if item['id'] != item2['id'] and item['id'] < item2['id']:
+                    if array == 'expenses':
+                        if item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                            self.delete_expenses(item2['id'])
+                            count += 1
+                    elif array == 'income':
+                        if item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                            self.delete_income(item2['id'])
+                            count += 1
+                    elif array == 'budget':
+                        if item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
+                            self.delete_budget(item2['category'])
+                            count += 1
+                    elif array == 'subscriptions':
+                        if item['price'] == item2['price'] and item['name'] == item2['name'] and item['currency'] == item2['currency'] and item['startDate'] == item2['startDate']:
+                            self.delete_subscription(item2['name'])
+                            count += 1
+                    elif array == 'goals':
+                        if item['name'] == item2['name'] and item['amount'] == item2['amount'] and item['startDate'] == item2['startDate'] and item['monthContribution'] == item2['monthContribution'] and item['currency'] == item2['currency']:
+                            self.delete_goals(item2['id'])
+                            count += 1
+        if count < 1:
+            return {'success':False,'message':'No duplicates found'}
         return {'success':True,'message':f'Removed {count} duplicates'}
 
     def apply_rules(self,array:list):
@@ -779,7 +782,7 @@ class ExpenseTracker():
             operator = rule['operator']
 
 
-__version__ = "v1.1"
+__version__ = "v1.2"
 
 # For getting web pages such as the GitHub page for this project
 import requests
