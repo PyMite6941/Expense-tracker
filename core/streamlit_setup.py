@@ -29,7 +29,7 @@ def init_st():
         st.session_state.subscriptions = results['data'] if results['success'] else []
     # If goals not in session state then import
     if 'goals' not in st.session_state:
-        results = st.session_state.tracker.view_goals()
+        results = st.session_state.tracker.view_all_goals()
         st.session_state.goals = results['data'] if results['success'] else []
     # If recurring expenses not in session state then import
     if 'recurring_expenses' not in st.session_state:

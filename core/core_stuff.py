@@ -46,14 +46,6 @@ class ExpenseTracker():
             return {'success':True,'data':data}
         except json.JSONDecodeError:
             data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
-            return {'success':True,'data':data}
-        # If FileNotFound or JSONDecodeError then return empty list
-        except FileNotFoundError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'recurring_expenses':[],'recurring_income':[]}
-            self.write_file(data)
-            return {'success':True,'data':data}
-        except json.JSONDecodeError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'recurring_expenses':[],'recurring_income':[]}
             self.write_file(data)
             return {'success':True,'data':data}
     
@@ -598,7 +590,7 @@ class ExpenseTracker():
         if count < 1:
             return {'success':False,'message':'No goal found'}
         data['goals'] = goalList
-        self.write(data)
+        self.write_file(data)
         return {'success':True,'message':'Successfully edited the goal'}
     
     # View all goals
@@ -607,6 +599,9 @@ class ExpenseTracker():
         result = self.open_file()
         data = result['data']
         goalList = data['goals']
+        # If goalList is empty
+        if not goalList:
+            return {'success':False,'message':'No goals found'}
         return {'success':True,'data':goalList}
     
     # View filtered goals
@@ -750,28 +745,28 @@ class ExpenseTracker():
         processedList = data[array]
         # Look through the list for duplicates
         count = 0
-        if array == 'expenses':
+        if array == 'expenses' or array == 'income':
             for item in processedList:
                 for item2 in processedList:
-                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
-                        self.delete_expenses(item2['id'])
-                        count += 1
-        elif array == 'income':
-            for item in processedList:
-                for item2 in processedList:
-                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
-                        self.delete_income(item2['id'])
-                        count += 1
+                    if item['id'] != item2['id'] and item['id'] < item2['id']:
+                        if array == 'expenses':
+                            if item['price'] == item2['price'] and item['purchased'] == item2['purchased'] and item['tags'] == item2['tags'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                                self.delete_expenses(item2['id'])
+                                count += 1
+                        elif array == 'income':
+                            if item['amount'] == item2['amount'] and item['source'] == item2['source'] and item['date'] == item2['date'] and item['currency'] == item2['currency'] and item['notes'] == item2['notes']:
+                                self.delete_income(item2['id'])
+                                count += 1
         elif array == 'budget':
             for item in processedList:
                 for item2 in processedList:
-                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
+                    if item['category'] == item2['category']:
                         self.delete_budget(item2['category'])
                         count += 1
         elif array == 'subscriptions':
             for item in processedList:
                 for item2 in processedList:
-                    if item['id'] != item2['id'] and item['id'] < item2['id'] and item['name'] == item2['name'] and item['price'] == item2['price'] and item['startDate'] == item2['startDate'] and item['currency'] == item2['currency']:
+                    if item['name'] == item2['name']:
                         self.delete_subscription(item2['name'])
                         count += 1
         return {'success':True,'message':f'Removed {count} duplicates'}

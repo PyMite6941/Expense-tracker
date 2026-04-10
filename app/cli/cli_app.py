@@ -397,7 +397,7 @@ class Run:
                 console.print(table)
             # Get the function to delete budgets
             elif choice == 'Delete budgets':
-                budget_category = int(questionary.text("What category should be deleted?\n> ").ask())
+                budget_category = str(questionary.text("What category should be deleted?\n> ").ask())
                 result = tracker.delete_budget(budget_category)
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
@@ -406,7 +406,7 @@ class Run:
                 amount_of_subscriptions = int(questionary.text("How many subscriptions do you want to add?\n> ").ask())
                 for _ in range(amount_of_subscriptions):
                     name = str(questionary.text("What is the name of the subscription?\n> ").ask())
-                    price = str(questionary.text("How much is the subscription?\n> ").ask())
+                    price = float(questionary.text("How much is the subscription?\n> ").ask())
                     currency = str(questionary.text("What currency is the subscription in? (default is usd)\n> ").ask())
                     startDate = str(questionary.text("When did the subscription start? (yyyy-mm-dd)\n> ").ask())
                     result = tracker.add_subscriptions(name,price,currency,startDate)
@@ -450,11 +450,11 @@ class Run:
                     continue
                 table = Table(title="Total Subscriptions",header_style='blue')
                 table.add_column("Name",style="white")
-                table.add_column("Amount",style='gold')
-                table.add_column("Category",style='green')
+                table.add_column("Price",style='gold')
+                table.add_column("Start Date",style='green')
                 table.add_column("Currency",style='red')
                 for subscription in subscriptionList:
-                    table.add_row(subscription['name'],str(subscription['amount']),subscription['category'],str(subscription['currency']).upper())
+                    table.add_row(subscription['name'],str(subscription['price']),str(subscription['startDate']),str(subscription['currency']).upper())
                 console.print(table)
             # Get the function to view filtered subscriptions
             elif choice == 'View filtered subscriptions':
@@ -466,7 +466,7 @@ class Run:
                         "Currency",
                     ],
                     pointer='>'                        
-                )
+                ).ask()
                 name,amount,currency = None,None,None
                 if 'Name' in choice:
                     name = str(questionary.text("What is the name of the subscription?\n> ").ask())
@@ -477,13 +477,14 @@ class Run:
                 results = tracker.view_filtered_subscriptions(name,amount,currency)
                 if not results['success'] or not results['data']:
                     console.print(f"[bold red]{results['message']}[/bold red].")
+                    continue
                 table = Table(title="Total Subscriptions",header_style='blue')
                 table.add_column("Name",style="white")
-                table.add_column("Amount",style='gold')
-                table.add_column("Category",style='green')
+                table.add_column("Price",style='gold')
+                table.add_column("Start Date",style='green')
                 table.add_column("Currency",style='red')
                 for subscription in results['data']:
-                    table.add_row(subscription['name'],str(subscription['amount']),subscription['category'],str(subscription['currency']).upper())
+                    table.add_row(subscription['name'],str(subscription['price']),str(subscription['startDate']),str(subscription['currency']).upper())
                 console.print(table)
             # Get the function to delete a subscription
             elif choice == 'Delete a subscription':
@@ -537,7 +538,7 @@ class Run:
             # Get the function to view all goals
             elif choice == 'View all goals':
                 results = tracker.view_all_goals()
-                if not results['success'] or not results['data']:
+                if not results['success']:
                     console.print(f"[bold red]{results['message']}[/bold red].")
                     continue
                 table = Table(title="Total Goals",header_style='blue')
@@ -573,6 +574,7 @@ class Run:
                 results = tracker.view_filtered_goals(name,amount,startDate,monthContribution,currency)
                 if not results['success'] or not results['data']:
                     console.print(f"[bold red]{results['message']}[/bold red].")
+                    continue
                 table = Table(title="Total Goals",header_style='blue')
                 table.add_column("Name",style="white")
                 table.add_column("Amount",style='gold')
@@ -587,7 +589,7 @@ class Run:
                 pass
             # Get the function to delete a goal
             elif choice == 'Delete goals':
-                goal_id = str(questionary.text("What is the id of the goal?\n> ").ask())
+                goal_id = int(questionary.text("What is the id of the goal?\n> ").ask())
                 results = tracker.delete_goals(goal_id)
                 color = 'green' if results['success'] else 'red'
                 console.print(f"[bold {color}]{results['message']}[/bold {color}].")
@@ -681,8 +683,7 @@ class Run:
             elif choice == 'Update Software':
                 result = check_for_updates()
                 if result['success']:
-                    new_version = check_for_updates()
-                    results = validate_update(new_version['version'])
+                    results = validate_update(result['version'])
                     if results['update']:
                         console.print('[bold yellow]Updating ...[/bold yellow]')
                         start_update()
