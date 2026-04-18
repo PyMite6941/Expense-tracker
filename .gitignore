@@ -2,13 +2,9 @@
 .claude
 .devcontainer
 __pycache__
-data.json
-rules.json
 nul
-expenses.csv
-income.csv
-budget.csv
-subscriptions.csv
-260129_proj_CPT_ProgramCode.pdf
+*.json
+*.csv
+*.pdf
+*.md
 pdf_converter.py
-backend-setup.md

@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich.console import Console
 import questionary
 
-from app.cli.cli_app import Run
+from CLI.app.cli.cli_app import Run
 
 console = Console()
 console.print(Panel("[bold white]Expense Tracker[/bold white]",border_style='blue'))

@@ -1,7 +1,11 @@
 # This is used to process lists, especially writing and reading files as seen in the open_file() and write_file() functions
 import json
+# This is for creating and using graphs effectively
+import matplotlib.pyplot as plt
 # This is to import and export .csv files easily
 import pandas as pd
+# This is used to export PDF documents nicely
+from reportlab.pdfgen import canvas
 # This is used to process the API url to get the rates in the convert_currency() function
 import requests
 # Add more time safety
@@ -40,11 +44,7 @@ class ExpenseTracker():
                     data['recurring_income'] = []
             return {'success':True,'data':data}
         # If FileNotFound or JSONDecodeError then return empty list
-        except FileNotFoundError:
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
-            self.write_file(data)
-            return {'success':True,'data':data}
-        except json.JSONDecodeError:
+        except FileNotFoundError or json.JSONDecodeError:
             data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
             self.write_file(data)
             return {'success':True,'data':data}
@@ -69,6 +69,20 @@ class ExpenseTracker():
         else:
             max_id = max(item['id'] for item in data)
             return max_id + 1
+        
+    # Create graphs
+    def create_graphs(self,listName:str,graph_type:str) -> Dict[str,Any]:
+        # Define the list to process
+        result = self.open_file()
+        data = result[data]
+        processList = data[listName]
+        # Set up graph components
+        fig,ax = plt.subplot()
+        # If pie chart
+        if graph_type == 'pie':
+            plt.pie(processList.value(),labels=processList.keys())
+            ax.set_title(f'{listName} Pie Chart')
+            return fig
         
     # Get the currency symbol from self.currency_symbols
     def get_currency_symbols(self,currency:str) -> str:
@@ -702,7 +716,8 @@ class ExpenseTracker():
         listToProcess.extend(newData)
         data[listName] = listToProcess
         self.write_file(data)
-        return {'success':True,'message':f'Imported {filename} successfully'}
+        display_name = getattr(filename, 'name', filename)
+        return {'success':True,'message':f'Imported {display_name} successfully'}
 
     # Export expenses to a .csv file
     def export_to_csv(self,listName:str,filename:str) -> Dict[str,Any]:
@@ -717,6 +732,11 @@ class ExpenseTracker():
         df = pd.DataFrame(listToProcess)
         df.to_csv(filename,index=False)
         return {'success':True,'message':f'Wrote {listName} to {filename}','data':df}
+
+    # Export to PDF
+    def export_to_pdf(self,listName:str,filename:str) -> Dict[str,Any]:
+        c = canvas.Canvas(f"{listName} report")
+
 
     # Convert expenses to a different currency
     def convert_prices_to_currency(self,to_currency:str) -> Dict[str,Any]:
@@ -759,27 +779,20 @@ class ExpenseTracker():
                             self.delete_income(item2['id'])
                             count += 1
                     elif array == 'budget':
-                        if item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
+                        if item['id'] != item2['id'] and item['category'] == item2['category'] and item['amount'] == item2['amount'] and item['currency'] == item2['currency']:
                             self.delete_budget(item2['category'])
                             count += 1
                     elif array == 'subscriptions':
-                        if item['price'] == item2['price'] and item['name'] == item2['name'] and item['currency'] == item2['currency'] and item['startDate'] == item2['startDate']:
+                        if item['id'] != item2['id'] and item['price'] == item2['price'] and item['name'] == item2['name'] and item['currency'] == item2['currency'] and item['startDate'] == item2['startDate']:
                             self.delete_subscription(item2['name'])
                             count += 1
                     elif array == 'goals':
-                        if item['name'] == item2['name'] and item['amount'] == item2['amount'] and item['startDate'] == item2['startDate'] and item['monthContribution'] == item2['monthContribution'] and item['currency'] == item2['currency']:
+                        if item['id'] != item2['id'] and item['name'] == item2['name'] and item['amount'] == item2['amount'] and item['startDate'] == item2['startDate'] and item['monthContribution'] == item2['monthContribution'] and item['currency'] == item2['currency']:
                             self.delete_goals(item2['id'])
                             count += 1
         if count < 1:
             return {'success':False,'message':'No duplicates found'}
         return {'success':True,'message':f'Removed {count} duplicates'}
-
-    def apply_rules(self,array:list):
-        with open('rules.json','r') as file:
-            rules = json.load(file)
-        for rule in rules:
-            field = rule['field']
-            operator = rule['operator']
 
 
 __version__ = "v1.2"

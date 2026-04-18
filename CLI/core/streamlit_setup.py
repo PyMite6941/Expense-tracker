@@ -4,7 +4,7 @@ import streamlit as st
 from datetime import datetime
 
 # Get the class to use
-from core.core_stuff import ExpenseTracker
+from CLI.core.core_stuff import ExpenseTracker
 
 # Initialize the session states
 def init_st():

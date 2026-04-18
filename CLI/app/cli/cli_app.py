@@ -9,20 +9,21 @@ import plotext as plt
 from datetime import datetime
 
 # Import data from the core python file
-from core.core_stuff import ExpenseTracker,check_for_updates,validate_update,start_update
+from CLI.core.core_stuff import ExpenseTracker,check_for_updates,validate_update,start_update
 
 class Run:
     def __init__(self):
-        def show_data_in_bar_graph(array:list,title:str) -> None:
-            # Graph data in a bar chart
-            plt.bar(array)
-            plt.title(title)
-            plt.show()
         # Initiate needed modules
         tracker = ExpenseTracker()
         console = Console()
         running = True
         while running:
+            # Check for duplicates everytime the file is rerun and delete the duplicates
+            result = tracker.open_file()
+            data = result['data']
+            types = ['expenses','income','budget','subscriptions','goals']
+            for i in range(len(types)):
+                tracker.check_for_duplicates(data[types[i]])
             # Display a description of my project
             console.print(Panel("[bold white]This was my APCSP Project, an expense tracker. I wanted (and have) created a project that doesn't just look good for my GitHub it also works for my APCSP project!\nWho cares what I've learned, I've learned to create a valuable product.",title="[bold cyan]--- Expense Tracker ---[/bold cyan]",border_style='blue'))
             # Get user input from a questionary menu
@@ -64,7 +65,6 @@ class Run:
                     questionary.Separator('--- Cool Functions ---'),
                     questionary.Choice('Import data from a .csv file'),
                     questionary.Choice('Export data to a .csv file'),
-                    questionary.Choice('Delete duplicates'),
                     questionary.Choice('Show data on graphs and charts'),
                     questionary.Choice('Convert money to a different currency'),
                     questionary.Separator('--- Program Functions ---'),
@@ -648,16 +648,22 @@ class Run:
                     choices=[
                         'Expenses',
                         'Income',
-                        'Subscriptions'
+                        'Budget',
+                        'Subscriptions',
+                        'Goals',
                     ],
                     pointer='>',
                 ).ask()
                 if choice == 'Expenses':
-                    show_data_in_bar_graph(data['expenses'],title='Expenses')
+                    tracker.create_graphs('expenses','pie')
                 elif choice == 'Income':
-                    show_data_in_bar_graph(data['income'],title='Income')
+                    tracker.create_graphs('income','pie')
+                elif choice == 'Budget':
+                    tracker.create_graphs('budget','pie')
                 elif choice == 'Subscriptions':
-                    show_data_in_bar_graph(data['subscriptions'],title='Subscriptions')
+                    tracker.create_graphs('subscriptions','pie')
+                elif choice == 'Goals':
+                    tracker.create_graphs('goals','bar')
             # Get the function to remove duplicate entries
             elif choice == 'Delete duplicates':
                 list_choice = questionary.select(

@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..')))
 
 # Initialize the session states
-from core.streamlit_setup import init_st,sync_data
+from CLI.core.streamlit_setup import init_st,sync_data
 
 init_st()
 
@@ -52,7 +52,8 @@ if choice == 'Expenses':
         if st.form_submit_button('Add Expense'):
             if recurring == True:
                 results = st.session_state.tracker.add_recurring_expense(expense_amount,expense_purchased,expense_category,expense_currency)
-            results = st.session_state.tracker.add_expenses(expense_amount,expense_purchased,expense_category,expense_currency,str(expense_date),expense_notes)
+            else:
+                results = st.session_state.tracker.add_expenses(expense_amount,expense_purchased,expense_category,expense_currency,str(expense_date),expense_notes)
             if results['success']:
                 st.success(results['message'])
                 sync_data()
@@ -94,7 +95,8 @@ elif choice == 'Income':
         if st.form_submit_button('Add Income'):
             if recurring == True:
                 results = st.session_state.tracker.add_recurring_income(income_amount,income,income_currency)
-            results = st.session_state.tracker.add_income(income_amount,income,str(income_date),income_currency,income_notes)
+            else:
+                results = st.session_state.tracker.add_income(income_amount,income,str(income_date),income_currency,income_notes)
             if results['success']:
                 st.success(results['message'])
                 sync_data()
