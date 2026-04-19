@@ -3,8 +3,7 @@ import streamlit as st
 # For proper importing stuff
 import os
 import sys
-sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..')))
-
+sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 # Initialize the session states
 from CLI.app.streamlit_setup import init_st,sync_data
 
@@ -35,6 +34,7 @@ if st.session_state.file_uploader:
     st.session_state.tracker.import_from_csv("subscriptions",st.session_state.file_uploader)
     sync_data()
     st.success("Data imported successfully!")
+    st.rerun()
 result = st.session_state.tracker.export_to_csv("subscriptions","subscriptions.csv")
 if result['success']:
     st.download_button(label="Export subscriptions to .csv",data=result['data'].to_csv(index=False).encode('utf-8'),file_name="subscriptions.csv",mime="text/csv")

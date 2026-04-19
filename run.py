@@ -23,6 +23,6 @@ if choice == "CLI":
     Run()
 elif choice == "Web UI":
     console.print("Beginning Web UI Dashboard ...")
-    subprocess.run(['streamlit','run','app/Dashboard.py'],check=True)
+    subprocess.run(['streamlit','run','CLI/app/Dashboard.py'],check=True)
 else:
     console.print("Farewell.")

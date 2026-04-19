@@ -44,7 +44,7 @@ class ExpenseTracker():
                     data['recurring_income'] = []
             return {'success':True,'data':data}
         # If FileNotFound or JSONDecodeError then return empty list
-        except FileNotFoundError or json.JSONDecodeError:
+        except (FileNotFoundError, json.JSONDecodeError):
             data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
             self.write_file(data)
             return {'success':True,'data':data}
@@ -74,7 +74,7 @@ class ExpenseTracker():
     def create_graphs(self,listName:str,graph_type:str) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
-        data = result[data]
+        data = result['data']
         processList = data[listName]
         # Set up graph components
         fig,ax = plt.subplot()

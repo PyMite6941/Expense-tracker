@@ -3,8 +3,7 @@ import streamlit as st
 # For proper importing stuff
 import os
 import sys
-sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..')))
-
+sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 # Initialize the session states
 from CLI.app.streamlit_setup import init_st,sync_data
 
@@ -76,7 +75,7 @@ elif choice == 'Subscription':
         subscription_name = st.text_area('Subscription Name')
         subscription_price = st.number_input('Subscription Price',min_value=0.0,step=0.01)
         subscription_currency = st.selectbox('Subscription Currency',options=['USD','EUR','JPY','GBP','AUD','CAD','CHF','CNY','SEK','NZD','THB','INR','Other'])
-        if st.form_submit_button('Add Subscription'):
+        if st.form_submit_button('Edit Subscription'):
             results = st.session_state.tracker.edit_subscription(subscription_name,price=subscription_price,currency=subscription_currency)
             if results['success']:
                 st.success(results['message'])
