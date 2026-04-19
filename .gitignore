@@ -7,4 +7,5 @@ nul
 *.csv
 *.pdf
 *.md
+.env
 pdf_converter.py

@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
 
 # Initialize the session states
-from CLI.core.streamlit_setup import init_st
+from CLI.app.streamlit_setup import init_st
 
 # Initialize the streamlit variables
 init_st()

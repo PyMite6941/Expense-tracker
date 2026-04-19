@@ -1,5 +1,11 @@
 FROM python:3.13.7-slim
 
 WORKDIR /server
-RUN pip install -r requirements.txt
-CMD ["python","server.py"]
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PORT=8080
+CMD ["python", "server.py"]
