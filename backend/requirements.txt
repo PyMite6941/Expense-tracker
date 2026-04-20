@@ -1,4 +1,5 @@
-fastapi
-uvicorn[standard]
-google-cloud-vision
-python-multipart
+fastapi>=0.110.0,<1.0.0
+uvicorn[standard]>=0.29.0,<1.0.0
+google-cloud-vision>=3.7.0,<4.0.0
+python-multipart>=0.0.9,<1.0.0
+slowapi>=0.1.9,<1.0.0
