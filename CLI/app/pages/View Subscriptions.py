@@ -11,10 +11,7 @@ init_st()
 
 st.title('View Subscriptions')
 search = st.text_input("Search subscriptions ...","")
-# If subscription is empty
-if not st.session_state.subscriptions:
-    st.write("No subscriptions found. Add subscriptions to get started.")
-if search and search != "":
+if search:
     subscriptions = [subscription for subscription in st.session_state.subscriptions if search.lower() in subscription['name'].lower()]
 else:
     subscriptions = st.session_state.subscriptions
@@ -25,12 +22,14 @@ if subscriptions:
         with col1:
             st.write(f"**{subscription_item['name']}**")
         with col2:
-            st.write(f"**{subscription_item['price']:.2f} {subscription_item['currency'].upper()}**")
-else:
+            st.write(f"**{float(subscription_item['price']):.2f} {subscription_item['currency'].upper()}**")
+elif search:
     st.write(f"No subscriptions found using search term '{search}'.")
+else:
+    st.write("No subscriptions found. Add subscriptions to get started.")
 # Import / export subscriptions via .csv
-st.file_uploader("Import subscriptions from .csv", type=["csv"], key="file_uploader")
-if st.session_state.file_uploader:
+st.file_uploader("Import subscriptions from .csv", type=["csv"], key="subscriptions_file_uploader")
+if st.session_state.subscriptions_file_uploader:
     st.session_state.tracker.import_from_csv("subscriptions",st.session_state.file_uploader)
     sync_data()
     st.success("Data imported successfully!")

@@ -23,7 +23,7 @@ class Run:
             data = result['data']
             types = ['expenses','income','budget','subscriptions','goals']
             for i in range(len(types)):
-                tracker.check_for_duplicates(data[types[i]])
+                tracker.check_for_duplicates(types[i])
             # Display a description of my project
             console.print(Panel("[bold white]This was my APCSP Project, an expense tracker. I wanted (and have) created a project that doesn't just look good for my GitHub it also works for my APCSP project!\nWho cares what I've learned, I've learned to create a valuable product.",title="[bold cyan]--- Expense Tracker ---[/bold cyan]",border_style='blue'))
             # Get user input from a questionary menu

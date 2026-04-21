@@ -34,8 +34,8 @@ elif search:
 else:
     st.write("No income found. Add income to get started.")
 # Import / export income via .csv
-st.file_uploader("Import income from .csv", type=["csv"], key="file_uploader")
-if st.session_state.file_uploader:
+st.file_uploader("Import income from .csv", type=["csv"], key="income_file_uploader")
+if st.session_state.income_file_uploader:
     st.session_state.tracker.import_from_csv("income",st.session_state.file_uploader)
     sync_data()
     st.success("Data imported successfully!")

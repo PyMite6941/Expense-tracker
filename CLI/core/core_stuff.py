@@ -760,7 +760,7 @@ class ExpenseTracker():
         self.write_file(data)
         return {'success':True,'message':f'Successfully converted to {to_currency.upper()}'}
 
-    def check_for_duplicates(self,array:list) -> Dict[bool,str]:
+    def check_for_duplicates(self,array:str) -> Dict[bool,str]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -824,4 +824,4 @@ def validate_update(latest_tag):
 def start_update():
     subprocess.run(["git","pull"],check=True)
     subprocess.run([sys.executable,"-m","pip","install","-r","requirements.txt"],check=True)
-    return {'success':True,'messaage':'Close the program to run with the new updates'}
+    return {'success':True,'message':'Close the program to run with the new updates'}
