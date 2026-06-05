@@ -47,6 +47,103 @@ with tab_dashboard:
 
     st.divider()
 
+    # ── Net-worth snapshot ───────────────────────────────────────────────────
+    st.subheader('Net-Worth Snapshot')
+    try:
+        from backend.analytics import net_worth_snapshot
+        _nw_data = {
+            'expenses': st.session_state.expenses,
+            'income': st.session_state.income,
+            'subscriptions': st.session_state.subscriptions,
+            'goals': st.session_state.goals,
+        }
+        _nw = net_worth_snapshot(_nw_data, convert_fn=st.session_state.tracker.convert_currency)
+        if _nw['success']:
+            _nw_cols = st.columns(4)
+            _nw_cols[0].metric('Total Income', f"{_nw['total_income']:,.2f} {_nw['base_currency']}")
+            _nw_cols[1].metric('Total Expenses', f"{_nw['total_expenses']:,.2f} {_nw['base_currency']}")
+            _nw_cols[2].metric('Net Cash Flow', f"{_nw['net_cash_flow']:,.2f} {_nw['base_currency']}")
+            _nw_cols[3].metric('Est. Net Worth', f"{_nw['estimated_net_worth']:,.2f} {_nw['base_currency']}")
+            _nw_cols2 = st.columns(2)
+            _nw_cols2[0].metric('Monthly Subscription Burden', f"{_nw['monthly_subscription_burden']:,.2f} {_nw['base_currency']}")
+            _nw_cols2[1].metric('Goal Contributions to Date', f"{_nw['goal_contributions_to_date']:,.2f} {_nw['base_currency']}")
+    except Exception as _e:
+        st.info(f'Net-worth snapshot unavailable: {_e}')
+
+    st.divider()
+
+    # ── Spending forecast ────────────────────────────────────────────────────
+    st.subheader('Spending Forecast')
+    try:
+        from backend.analytics import forecast_spending
+        _fc = forecast_spending(st.session_state.expenses)
+        if _fc['success'] and _fc['forecasts']:
+            st.caption(f"Based on {_fc['based_on_months']} month(s) of history ({_fc['base_currency']} only)")
+            _fc_cols = st.columns(3)
+            for _fi, (_cat, _info) in enumerate(_fc['forecasts'].items()):
+                _col = _fc_cols[_fi % 3]
+                _arrow = '↑' if _info['trend'] == 'increasing' else '↓' if _info['trend'] == 'decreasing' else '→'
+                _col.metric(
+                    f'{_cat} {_arrow}',
+                    f"{_info['next_month_forecast']:,.2f}",
+                    delta=f"avg {_info['current_avg']:,.2f}",
+                )
+        elif not _fc['success']:
+            st.info('Not enough expense history to generate a forecast yet.')
+    except Exception as _e:
+        st.info(f'Forecast unavailable: {_e}')
+
+    st.divider()
+
+    # ── Anomaly detection ────────────────────────────────────────────────────
+    st.subheader('Unusual Expenses')
+    try:
+        from backend.analytics import detect_anomalies
+        _ad = detect_anomalies(st.session_state.expenses)
+        if _ad['anomalies']:
+            st.caption(f"{_ad['count']} statistically unusual expense(s) detected:")
+            for _anom in _ad['anomalies']:
+                _dev_sign = '+' if _anom['deviation'] > 0 else ''
+                st.warning(
+                    f"**{_anom.get('purchased', '—')}** — "
+                    f"{_anom['price']:.2f} {_anom.get('currency','').upper()} "
+                    f"({_dev_sign}{_anom['deviation']:.2f} from {_anom['category_mean']:.2f} avg in {_anom['tags']}, "
+                    f"z={_anom['z_score']})"
+                )
+        else:
+            st.success('No unusual expenses detected.')
+    except Exception as _e:
+        st.info(f'Anomaly detection unavailable: {_e}')
+
+    st.divider()
+
+    # ── Natural language query ───────────────────────────────────────────────
+    st.subheader('Ask About Your Finances')
+    try:
+        from backend.ai import is_configured as _ai_ok, answer_query as _answer_query
+        if not _ai_ok():
+            st.info('Set AI_API_KEY (and optionally AI_PROVIDER, AI_MODEL) to enable natural-language queries.')
+        else:
+            _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input')
+            if st.button('Ask', key='nl_query_btn') and _nl_question.strip():
+                with st.spinner('Thinking …'):
+                    _nl_data = {
+                        'expenses': st.session_state.expenses,
+                        'income': st.session_state.income,
+                        'budget': st.session_state.budget,
+                        'subscriptions': st.session_state.subscriptions,
+                        'goals': st.session_state.goals,
+                    }
+                    try:
+                        _nl_answer = _answer_query(_nl_question, _nl_data)
+                        st.session_state['nl_last_answer'] = _nl_answer
+                    except Exception as _exc:
+                        st.error(f'Query failed: {_exc}')
+            if st.session_state.get('nl_last_answer'):
+                st.markdown(st.session_state['nl_last_answer'])
+    except Exception as _e:
+        st.info(f'AI query unavailable: {_e}')
+
 # ── Add ──────────────────────────────────────────────────────────────────────
 with tab_add:
     st.subheader('Add Material')
@@ -81,6 +178,25 @@ with tab_add:
                         st.error(f'OCR failed: {exc}')
                 else:
                     st.info('Set GOOGLE_APPLICATION_CREDENTIALS to scan receipts.')
+
+        # ── AI category suggestion ───────────────────────────────────────────
+        try:
+            from backend.ai import is_configured as _ai_ok_add, suggest_category as _suggest_cat
+            if _ai_ok_add():
+                with st.expander('Suggest Category with AI', expanded=False):
+                    _sug_merchant = st.text_input('Merchant name', key='ai_sug_merchant')
+                    _sug_amount = st.number_input('Amount', min_value=0.0, step=0.01, key='ai_sug_amount')
+                    if st.button('Suggest', key='ai_sug_btn') and _sug_merchant.strip():
+                        with st.spinner('Thinking …'):
+                            try:
+                                _cat_result = _suggest_cat(_sug_merchant, _sug_amount)
+                                st.session_state['ai_suggested_category'] = _cat_result
+                            except Exception as _exc:
+                                st.error(f'Suggestion failed: {_exc}')
+                    if st.session_state.get('ai_suggested_category'):
+                        st.info(f"Suggested category: **{st.session_state['ai_suggested_category']}**")
+        except Exception:
+            pass
 
         with st.expander('Recurring Expenses', expanded=False):
             if not st.session_state.recurring_expenses:
@@ -120,7 +236,10 @@ with tab_add:
                 expense_purchased = st.text_input('What was purchased?', value=_default_merchant, key='add_exp_purchased')
             with col2:
                 expense_amount = st.number_input('Expense Amount', min_value=0.0, step=0.01, value=_default_amount, key='add_exp_amount')
-            expense_category = st.selectbox('Expense Category', options=['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other'], key='add_exp_category')
+            _exp_cat_opts = ['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other']
+            _ai_cat = st.session_state.get('ai_suggested_category', None)
+            _exp_cat_idx = _exp_cat_opts.index(_ai_cat) if _ai_cat in _exp_cat_opts else 0
+            expense_category = st.selectbox('Expense Category', options=_exp_cat_opts, index=_exp_cat_idx, key='add_exp_category')
             expense_currency = st.selectbox('Expense Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_exp_currency')
             expense_date = st.date_input('Expense Date', value=_default_date, key='add_exp_date')
             expense_notes = st.text_area('Expense Notes', key='add_exp_notes')
@@ -131,7 +250,7 @@ with tab_add:
                 else:
                     results = st.session_state.tracker.add_expenses(expense_amount, expense_purchased, expense_category, expense_currency, str(expense_date), expense_notes)
                 if results['success']:
-                    for k in ('ocr_merchant', 'ocr_total', 'ocr_date'):
+                    for k in ('ocr_merchant', 'ocr_total', 'ocr_date', 'ai_suggested_category'):
                         st.session_state.pop(k, None)
                     st.success(results['message'])
                     sync_data()
@@ -401,6 +520,9 @@ with tab_view_expenses:
     result = st.session_state.tracker.export_to_csv('expenses', 'expenses.csv')
     if result['success']:
         st.download_button(label='Export expenses to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='expenses.csv', mime='text/csv', key='exp_download')
+    pdf_result = st.session_state.tracker.export_to_pdf('expenses', 'expenses.pdf')
+    if pdf_result['success']:
+        st.download_button(label='Export expenses to .pdf', data=pdf_result['data'], file_name='expenses.pdf', mime='application/pdf', key='exp_pdf_download')
 
 # ── View Income ──────────────────────────────────────────────────────────────
 with tab_view_income:
@@ -437,6 +559,9 @@ with tab_view_income:
     result = st.session_state.tracker.export_to_csv('income', 'income.csv')
     if result['success']:
         st.download_button(label='Export income to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='income.csv', mime='text/csv', key='inc_download')
+    pdf_result = st.session_state.tracker.export_to_pdf('income', 'income.pdf')
+    if pdf_result['success']:
+        st.download_button(label='Export income to .pdf', data=pdf_result['data'], file_name='income.pdf', mime='application/pdf', key='inc_pdf_download')
 
 # ── View Subscriptions ───────────────────────────────────────────────────────
 with tab_view_subscriptions:

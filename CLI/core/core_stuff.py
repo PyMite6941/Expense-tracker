@@ -734,8 +734,49 @@ class ExpenseTracker():
         return {'success':True,'message':f'Wrote {listName} to {filename}','data':df}
 
     # Export to PDF
-    def export_to_pdf(self,listName:str,filename:str) -> Dict[str,Any]:
-        c = canvas.Canvas(f"{listName} report")
+    def export_to_pdf(self, listName: str, filename: str) -> Dict[str, Any]:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from datetime import datetime as _dt
+        import io
+
+        result = self.open_file()
+        data = result['data']
+        items = data.get(listName, [])
+        if not items:
+            return {'success': False, 'message': f'No {listName} to export'}
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+
+        story.append(Paragraph(f'{listName.capitalize()} Report', styles['Title']))
+        story.append(Paragraph(f'Generated: {_dt.now().strftime("%Y-%m-%d %H:%M")}', styles['Normal']))
+        story.append(Spacer(1, 16))
+
+        headers = list(items[0].keys())
+        table_data = [headers] + [[str(row.get(h, '')) for h in headers] for row in items]
+        t = Table(table_data, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F81BD')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#EBF3FF')]),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t)
+
+        doc.build(story)
+        pdf_bytes = buf.getvalue()
+        with open(filename, 'wb') as f:
+            f.write(pdf_bytes)
+        return {'success': True, 'message': f'PDF exported to {filename}', 'data': pdf_bytes}
 
 
     # Convert expenses to a different currency
