@@ -13,7 +13,15 @@ init_st()
 
 
 def _backend_post(endpoint: str, payload: dict):
-    return _requests.post(f'{st.session_state.get("backend_url", BACKEND_URL)}{endpoint}', json=payload, timeout=30)
+    try:
+        return _requests.post(
+            f'{st.session_state.get("backend_url", BACKEND_URL)}{endpoint}',
+            json=payload, timeout=30,
+        )
+    except _requests.exceptions.ConnectionError:
+        return None
+    except _requests.exceptions.Timeout:
+        return None
 
 st.title('Web-based Expense and Income Tracking')
 
@@ -82,7 +90,7 @@ with tab_dashboard:
                 _nw = net_worth_snapshot(_nw_payload, convert_fn=st.session_state.tracker.convert_currency)
             else:
                 _resp = _backend_post('/net-worth', _nw_payload)
-                _nw = _resp.json() if _resp.ok else {'success': False}
+                _nw = (_resp.json() if _resp.ok else {'success': False}) if _resp is not None else {'success': False}
             if _nw.get('success'):
                 _cur = _nw['base_currency']
                 _nw_cols = st.columns(4)
@@ -110,7 +118,7 @@ with tab_dashboard:
             _fc = forecast_spending(st.session_state.expenses)
         else:
             _resp = _backend_post('/forecast', {'expenses': st.session_state.expenses, 'base_currency': 'USD'})
-            _fc = _resp.json() if _resp.ok else {'success': False, 'forecasts': {}}
+            _fc = (_resp.json() if _resp.ok else {'success': False, 'forecasts': {}}) if _resp is not None else {'success': False, 'forecasts': {}}
         if _fc.get('success') and _fc.get('forecasts'):
             st.caption(f"Based on {_fc['based_on_months']} month(s) of history ({_fc['base_currency']} only)")
             _fc_cols = st.columns(3)
@@ -132,7 +140,7 @@ with tab_dashboard:
             _ad = detect_anomalies(st.session_state.expenses)
         else:
             _resp = _backend_post('/detect-anomalies', {'expenses': st.session_state.expenses, 'z_threshold': 2.5})
-            _ad = _resp.json() if _resp.ok else {'anomalies': []}
+            _ad = (_resp.json() if _resp.ok else {'anomalies': []}) if _resp is not None else {'anomalies': []}
         if _ad.get('anomalies'):
             st.caption(f"{_ad['count']} statistically unusual expense(s) detected:")
             for _anom in _ad['anomalies']:
@@ -150,29 +158,40 @@ with tab_dashboard:
 
     st.divider()
 
-    # ── Natural language query ───────────────────────────────────────────────
+    # ── Natural language query ───────────────────────────────────────────
     st.subheader('Ask About Your Finances')
-    _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input')
-    if st.button('Ask', key='nl_query_btn') and _nl_question.strip():
-        with st.spinner('Thinking …'):
-            _nl_data = {
-                'expenses': st.session_state.expenses, 'income': st.session_state.income,
-                'budget': st.session_state.budget, 'subscriptions': st.session_state.subscriptions,
-                'goals': st.session_state.goals,
-            }
-            try:
-                if USE_LOCAL_BACKEND:
-                    from backend.ai import answer_query as _answer_query
-                    _nl_answer = _answer_query(_nl_question, _nl_data)
-                else:
-                    _resp = _backend_post('/query', {'question': _nl_question, 'data': _nl_data})
-                    _nl_answer = _resp.json().get('answer', _resp.text) if _resp.ok else f'Error {_resp.status_code}'
-                st.session_state['nl_last_answer'] = _nl_answer
-            except Exception as _exc:
-                st.error(f'Query failed: {_exc}')
-    if st.session_state.get('nl_last_answer'):
-        st.markdown(st.session_state['nl_last_answer'])
-
+    _nl_ai_ok = False
+    try:
+        from backend.ai import is_configured as _ai_configured_nl
+        _nl_ai_ok = _ai_configured_nl()
+    except Exception:
+        pass
+    if not _nl_ai_ok and not USE_LOCAL_BACKEND:
+        st.info('Set an AI_API_KEY to enable natural language queries about your finances.')
+    else:
+        _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input')
+        if st.button('Ask', key='nl_query_btn') and _nl_question.strip():
+            with st.spinner('Thinking …'):
+                _nl_data = {
+                    'expenses': st.session_state.expenses, 'income': st.session_state.income,
+                    'budget': st.session_state.budget, 'subscriptions': st.session_state.subscriptions,
+                    'goals': st.session_state.goals,
+                }
+                try:
+                    if USE_LOCAL_BACKEND:
+                        from backend.ai import answer_query as _answer_query
+                        _nl_answer = _answer_query(_nl_question, _nl_data)
+                    else:
+                        _resp = _backend_post('/query', {'question': _nl_question, 'data': _nl_data})
+                        if _resp is None:
+                            _nl_answer = 'Backend unreachable.'
+                        else:
+                            _nl_answer = _resp.json().get('answer', _resp.text) if _resp.ok else f'Error {_resp.status_code}'
+                    st.session_state['nl_last_answer'] = _nl_answer
+                except Exception as _exc:
+                    st.error(f'Query failed: {_exc}')
+        if st.session_state.get('nl_last_answer'):
+            st.markdown(st.session_state['nl_last_answer'])
 # ── Add ──────────────────────────────────────────────────────────────────────
 with tab_add:
     st.subheader('Add Material')
@@ -269,7 +288,7 @@ with tab_add:
             _ai_cat = st.session_state.get('ai_suggested_category', None)
             _exp_cat_idx = _exp_cat_opts.index(_ai_cat) if _ai_cat in _exp_cat_opts else 0
             expense_category = st.selectbox('Expense Category', options=_exp_cat_opts, index=_exp_cat_idx, key='add_exp_category')
-            expense_currency = st.selectbox('Expense Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_exp_currency')
+            expense_currency = st.selectbox('Expense Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='add_exp_currency')
             expense_date = st.date_input('Expense Date', value=_default_date, key='add_exp_date')
             expense_notes = st.text_area('Expense Notes', key='add_exp_notes')
             recurring = st.checkbox('Recurring Expense', key='add_exp_recurring')
@@ -319,7 +338,7 @@ with tab_add:
                 income_source = st.text_input('Income Source', key='add_inc_source')
             with col2:
                 income_amount = st.number_input('Income Amount', min_value=0.0, step=0.01, key='add_inc_amount')
-            income_currency = st.selectbox('Income Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_inc_currency')
+            income_currency = st.selectbox('Income Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='add_inc_currency')
             income_date = st.date_input('Income Date', key='add_inc_date')
             income_notes = st.text_area('Income Notes', key='add_inc_notes')
             recurring = st.checkbox('Recurring Income', key='add_inc_recurring')
@@ -339,7 +358,7 @@ with tab_add:
         with st.form('add_budget_form'):
             budget_amount = st.number_input('Budget Amount', min_value=0.0, step=0.01, key='add_bud_amount')
             budget_category = st.selectbox('Budget Category', options=['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other'], key='add_bud_category')
-            budget_currency = st.selectbox('Budget Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_bud_currency')
+            budget_currency = st.selectbox('Budget Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='add_bud_currency')
             if st.form_submit_button('Add Budget'):
                 results = st.session_state.tracker.create_budget(budget_category, budget_amount, budget_currency)
                 if results['success']:
@@ -353,7 +372,7 @@ with tab_add:
         with st.form('add_subscription_form'):
             subscription_name = st.text_area('Subscription Name', key='add_sub_name')
             subscription_price = st.number_input('Subscription Price', min_value=0.0, step=0.01, key='add_sub_price')
-            subscription_currency = st.selectbox('Subscription Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_sub_currency')
+            subscription_currency = st.selectbox('Subscription Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='add_sub_currency')
             subscription_start_date = st.date_input('Start Date', key='add_sub_date')
             if st.form_submit_button('Add Subscription'):
                 results = st.session_state.tracker.add_subscriptions(subscription_name, subscription_price, subscription_currency, str(subscription_start_date))
@@ -370,7 +389,7 @@ with tab_add:
             goal_target_amount = st.number_input('Goal Target Amount', min_value=0.0, step=0.01, key='add_goal_target')
             goal_monthly_contribution = st.number_input('Monthly Contribution', min_value=0.0, step=0.01, key='add_goal_contribution')
             goal_start_date = st.date_input('Goal Start Date', key='add_goal_date')
-            goal_currency = st.selectbox('Goal Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_goal_currency')
+            goal_currency = st.selectbox('Goal Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='add_goal_currency')
             if st.form_submit_button('Add Goal'):
                 results = st.session_state.tracker.create_goal(goal_name, goal_target_amount, str(goal_start_date), goal_monthly_contribution, goal_currency)
                 if results['success']:
@@ -447,7 +466,7 @@ with tab_edit:
                 expense_name = st.text_area('Expense Name', key='edit_exp_name')
             expense_amount = st.number_input('Expense Amount', min_value=0.0, step=0.01, key='edit_exp_amount')
             expense_category = st.selectbox('Expense Category', options=['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other'], key='edit_exp_category')
-            expense_currency = st.selectbox('Expense Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='edit_exp_currency')
+            expense_currency = st.selectbox('Expense Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='edit_exp_currency')
             expense_date = st.date_input('Expense Date', key='edit_exp_date')
             expense_notes = st.text_area('Expense Notes', key='edit_exp_notes')
             if st.form_submit_button('Edit Expense'):
@@ -467,7 +486,7 @@ with tab_edit:
             with col2:
                 income_source = st.text_area('New Income Name', key='edit_inc_source')
             income_amount = st.number_input('Change Income Amount', min_value=0.0, step=0.01, key='edit_inc_amount')
-            income_currency = st.selectbox('Change Income Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='edit_inc_currency')
+            income_currency = st.selectbox('Change Income Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='edit_inc_currency')
             income_date = st.date_input('Change Income Date', key='edit_inc_date')
             income_notes = st.text_area('Update Income Notes', key='edit_inc_notes')
             if st.form_submit_button('Edit Income'):
@@ -484,7 +503,7 @@ with tab_edit:
             previous_category = st.text_input('Current Budget Category', key='edit_bud_prev_category')
             budget_amount = st.number_input('New Budget Amount', min_value=0.0, step=0.01, key='edit_bud_amount')
             budget_category = st.selectbox('New Budget Category', options=['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other'], key='edit_bud_category')
-            budget_currency = st.selectbox('Change Budget Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='edit_bud_currency')
+            budget_currency = st.selectbox('Change Budget Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='edit_bud_currency')
             if st.form_submit_button('Edit Budget'):
                 results = st.session_state.tracker.update_budget(previous_category, budget_category, budget_amount, budget_currency)
                 if results['success']:
@@ -499,7 +518,7 @@ with tab_edit:
             subscription_name = st.text_area('Current Subscription Name', key='edit_sub_name')
             subscription_new_name = st.text_input('New Subscription Name (leave blank to keep)', key='edit_sub_new_name')
             subscription_price = st.number_input('Subscription Price', min_value=0.0, step=0.01, key='edit_sub_price')
-            subscription_currency = st.selectbox('Subscription Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='edit_sub_currency')
+            subscription_currency = st.selectbox('Subscription Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other'], key='edit_sub_currency')
             if st.form_submit_button('Edit Subscription'):
                 results = st.session_state.tracker.edit_subscription(
                     subscription_name,
@@ -652,7 +671,7 @@ with tab_net_worth:
     if 'net_worth' not in st.session_state.get('pro_features', []):
         st.info('Assets & Liabilities tracking is a **Max** feature. Activate a Max license on the Pro Features page.')
         st.stop()
-    _CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'THB', 'INR', 'Other']
+    _CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other']
 
     col_a, col_b = st.columns(2)
 

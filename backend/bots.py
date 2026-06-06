@@ -255,7 +255,7 @@ class Bots:
             memory=True,
             embedder={"provider": "fastembed", "config": {"model": "BAAI/bge-small-en-v1.5"}},
         )
-        crew.kickoff(inputs={"data": json.dumps(data)})
+        return crew.kickoff(inputs={"data": json.dumps(data)})
 
 
 # ── Advanced categorization crew (Pro/Max tier, JWT-gated) ────────────────────
