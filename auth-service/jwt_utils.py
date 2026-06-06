@@ -6,33 +6,30 @@ SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
 ALGORITHM = "HS256"
 
 TIER_FEATURES = {
-    # Pro — Expense Tracker only. AI runs server-side (CrewAI, OCR, forecasting).
     "pro": [
-        "advanced_categorization",   # CrewAI 3-agent crew
-        "anomaly_detection",         # IsolationForest outlier flagging
-        "budget_forecasting",        # LinearRegression next-month prediction
-        "receipt_ocr",               # Google Cloud Vision receipt parsing
-        "monthly_report",            # AI-generated PDF spending report
+        "advanced_categorization",
+        "anomaly_detection",
+        "budget_forecasting",
+        "receipt_ocr",
+        "monthly_report",
     ],
-    # Max — heavier compute across multiple projects. Justifies higher hosting cost.
     "max": [
         "advanced_categorization",
         "anomaly_detection",
         "budget_forecasting",
         "receipt_ocr",
         "monthly_report",
-        "deep_analysis",             # DeepSeek R1 full model — more tokens, slower, expensive
-        "multi_project",             # reserved — not active yet
-        "export_premium",            # PDF/CSV with AI commentary per category
+        "deep_analysis",
+        "multi_project",
+        "export_premium",
         "priority_support",
     ],
 }
 
 TIER_EXPIRY_DAYS = {
-    "pro": 31,   # monthly subscription — renew each billing cycle
-    "max": 31,   # monthly subscription — renew each billing cycle
+    "pro": 31,
+    "max": 31,
 }
-
 
 def create_license_jwt(email: str, tier: str = "pro") -> str:
     tier = tier.lower()
@@ -47,7 +44,6 @@ def create_license_jwt(email: str, tier: str = "pro") -> str:
         "exp": now + timedelta(days=TIER_EXPIRY_DAYS[tier]),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
 
 def verify_license_jwt(token: str) -> dict | None:
     try:

@@ -1,10 +1,14 @@
 # For the web ui setup
+import os
 import streamlit as st
 # For knowing the month and etc
 from datetime import datetime
 
 # Get the class to use
 from CLI.core.core_stuff import ExpenseTracker
+
+BACKEND_URL  = os.getenv("BACKEND_URL",  "https://expense-backend-690527435721.us-central1.run.app")
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "https://auth-service-690527435721.us-central1.run.app")
 
 # Initialize the session states
 def init_st():
@@ -45,6 +49,10 @@ def init_st():
         st.session_state.current_month = datetime.now().strftime("%Y-%m")
     if 'previous_currency' not in st.session_state:
         st.session_state.previous_currency = ''
+    if 'backend_url' not in st.session_state:
+        st.session_state.backend_url = BACKEND_URL
+    if 'auth_service_url' not in st.session_state:
+        st.session_state.auth_service_url = AUTH_SERVICE_URL
 
 # Refresh the data in the session state
 def sync_data():

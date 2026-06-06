@@ -18,15 +18,12 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 
-# Map Polar.sh product names/prices to tiers.
-# Update these after you create products on Polar.sh.
 PRICE_TO_TIER = {
     "9":  "pro",
     "9.00": "pro",
     "19": "max",
     "19.00": "max",
 }
-
 
 def init_db():
     with sqlite3.connect(DB) as conn:
@@ -43,16 +40,13 @@ def init_db():
             """
         )
 
-
 @app.on_event("startup")
 def startup():
     init_db()
 
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
 
 @app.post("/webhook/polar")
 async def polar_webhook(request: Request, x_polar_signature: str = Header(None)):
@@ -74,7 +68,6 @@ async def polar_webhook(request: Request, x_polar_signature: str = Header(None))
     email = (data.get("customer") or {}).get("email") or data.get("email")
     order_id = str(data.get("id", ""))
 
-    # Determine tier from the order amount
     amount = str(data.get("amount", data.get("total_amount", "9"))).replace(".0", "")
     tier = PRICE_TO_TIER.get(amount, "pro")
 
