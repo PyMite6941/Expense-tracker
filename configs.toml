@@ -1,0 +1,18 @@
+[app]
+data_file = "data.json"
+default_currency = "USD"
+
+[ai]
+provider = "groq"          # groq | openrouter
+api_key = ""               # or set via AI_API_KEY env var
+model = ""                 # leave blank to use provider default
+
+[ocr]
+credentials_file = ""      # path to Google credentials JSON, or set GOOGLE_APPLICATION_CREDENTIALS
+
+[server]
+host = "0.0.0.0"
+port = 8000
+
+[streamlit]
+port = 8501

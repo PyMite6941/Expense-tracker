@@ -1,12 +1,20 @@
 import re
 from google.cloud import vision
 
-_client = vision.ImageAnnotatorClient()
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = vision.ImageAnnotatorClient()
+    return _client
 
 
 def parse_receipt(image_bytes: bytes) -> dict:
+    client = _get_client()
     image = vision.Image(content=image_bytes)
-    response = _client.document_text_detection(image=image)
+    response = client.document_text_detection(image=image)
 
     if response.error.message:
         raise RuntimeError(f"Cloud Vision error: {response.error.message}")
