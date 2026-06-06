@@ -7,8 +7,16 @@ from datetime import datetime
 # Get the class to use
 from CLI.core.core_stuff import ExpenseTracker
 
-BACKEND_URL  = os.getenv("BACKEND_URL",  "https://expense-backend-690527435721.us-central1.run.app")
-AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "https://auth-service-690527435721.us-central1.run.app")
+from CLI.app.config import (
+    BACKEND_MODE,
+    CLOUD_BACKEND_URL, CLOUD_AUTH_URL,
+    LOCAL_BACKEND_URL, LOCAL_AUTH_URL,
+)
+
+_local = BACKEND_MODE == "local"
+BACKEND_URL      = os.getenv("BACKEND_URL",      LOCAL_BACKEND_URL  if _local else CLOUD_BACKEND_URL)
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", LOCAL_AUTH_URL     if _local else CLOUD_AUTH_URL)
+USE_LOCAL_BACKEND = _local
 
 # Initialize the session states
 def init_st():

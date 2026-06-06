@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from analytics import detect_anomalies, forecast_spending, tax_summary
+from analytics import detect_anomalies, forecast_spending, net_worth_snapshot, tax_summary
 from ai import answer_query, is_configured as ai_configured
 from bots import AdvancedCategorizationCrew
 from ocr import parse_receipt
@@ -48,6 +48,13 @@ class TaxSummaryRequest(BaseModel):
     deductible_categories: Optional[list] = None
 
 
+class NetWorthRequest(BaseModel):
+    expenses: list
+    income: list
+    subscriptions: list = []
+    goals: list = []
+
+
 class QueryRequest(BaseModel):
     question: str
     data: dict
@@ -73,6 +80,13 @@ async def parse(file: UploadFile):
         raise HTTPException(status_code=502, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail='Receipt parsing failed. Try again.')
+
+
+@app.post('/net-worth')
+def net_worth(req: NetWorthRequest):
+    data = {'expenses': req.expenses, 'income': req.income,
+            'subscriptions': req.subscriptions, 'goals': req.goals}
+    return net_worth_snapshot(data)
 
 
 @app.post('/forecast')

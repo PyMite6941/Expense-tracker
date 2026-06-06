@@ -6,9 +6,14 @@ import sys
 sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..', '..')))
 
 # Initialize the session states
-from CLI.app.streamlit_setup import init_st, sync_data
+from CLI.app.streamlit_setup import init_st, sync_data, BACKEND_URL, USE_LOCAL_BACKEND
+import requests as _requests
 
 init_st()
+
+
+def _backend_post(endpoint: str, payload: dict):
+    return _requests.post(f'{st.session_state.get("backend_url", BACKEND_URL)}{endpoint}', json=payload, timeout=30)
 
 st.title('Web-based Expense and Income Tracking')
 
@@ -32,33 +37,48 @@ with tab_dashboard:
     else:
         st.write("No income found.")
 
-    budget_totals = {}
-    for expense in st.session_state.expenses:
-        if expense['date'][:7] == st.session_state.current_month:
-            tag = expense['tags']
-            budget_totals[tag] = budget_totals.get(tag, 0) + expense['price']
-    for budget in st.session_state.budget:
-        total_spent = budget_totals.get(budget['category'], 0)
-        limit = float(budget['amount'])
-        if limit < total_spent:
-            st.warning(f"{budget['category']} budget has been surpassed by {total_spent - limit:.2f}.")
-        elif limit == total_spent:
-            st.warning(f"{budget['category']} budget has reached its limit.")
+    if st.session_state.budget:
+        st.subheader('Budget Status')
+        budget_totals = {}
+        for expense in st.session_state.expenses:
+            if expense['date'][:7] == st.session_state.current_month:
+                tag = expense['tags']
+                budget_totals[tag] = budget_totals.get(tag, 0) + expense['price']
+        for budget in st.session_state.budget:
+            total_spent = budget_totals.get(budget['category'], 0)
+            limit = float(budget['amount'])
+            pct = min(total_spent / limit, 1.0) if limit > 0 else 0.0
+            over = total_spent > limit
+            col_label, col_bar = st.columns([1, 3])
+            with col_label:
+                st.write(f"**{budget['category']}**")
+                st.caption(f"{total_spent:.2f} / {limit:.2f} {budget.get('currency','USD').upper()}")
+            with col_bar:
+                st.progress(pct)
+                if over:
+                    st.error(f"Over by {total_spent - limit:.2f} — reduce {budget['category']} spending", icon='🚨')
+                elif pct >= 0.9:
+                    st.warning(f"{int(pct*100)}% used — approaching limit", icon='⚠️')
 
     st.divider()
 
     # ── Net-worth snapshot ───────────────────────────────────────────────────
     st.subheader('Net-Worth Snapshot')
     try:
-        from backend.analytics import net_worth_snapshot
-        _nw_data = {
-            'expenses': st.session_state.expenses,
-            'income': st.session_state.income,
-            'subscriptions': st.session_state.subscriptions,
-            'goals': st.session_state.goals,
-        }
-        _nw = net_worth_snapshot(_nw_data, convert_fn=st.session_state.tracker.convert_currency)
-        if _nw['success']:
+        if USE_LOCAL_BACKEND:
+            from backend.analytics import net_worth_snapshot
+            _nw = net_worth_snapshot(
+                {'expenses': st.session_state.expenses, 'income': st.session_state.income,
+                 'subscriptions': st.session_state.subscriptions, 'goals': st.session_state.goals},
+                convert_fn=st.session_state.tracker.convert_currency,
+            )
+        else:
+            _resp = _backend_post('/net-worth', {
+                'expenses': st.session_state.expenses, 'income': st.session_state.income,
+                'subscriptions': st.session_state.subscriptions, 'goals': st.session_state.goals,
+            })
+            _nw = _resp.json() if _resp.ok else {'success': False}
+        if _nw.get('success'):
             _nw_cols = st.columns(4)
             _nw_cols[0].metric('Total Income', f"{_nw['total_income']:,.2f} {_nw['base_currency']}")
             _nw_cols[1].metric('Total Expenses', f"{_nw['total_expenses']:,.2f} {_nw['base_currency']}")
@@ -75,20 +95,19 @@ with tab_dashboard:
     # ── Spending forecast ────────────────────────────────────────────────────
     st.subheader('Spending Forecast')
     try:
-        from backend.analytics import forecast_spending
-        _fc = forecast_spending(st.session_state.expenses)
-        if _fc['success'] and _fc['forecasts']:
+        if USE_LOCAL_BACKEND:
+            from backend.analytics import forecast_spending
+            _fc = forecast_spending(st.session_state.expenses)
+        else:
+            _resp = _backend_post('/forecast', {'expenses': st.session_state.expenses, 'base_currency': 'USD'})
+            _fc = _resp.json() if _resp.ok else {'success': False, 'forecasts': {}}
+        if _fc.get('success') and _fc.get('forecasts'):
             st.caption(f"Based on {_fc['based_on_months']} month(s) of history ({_fc['base_currency']} only)")
             _fc_cols = st.columns(3)
             for _fi, (_cat, _info) in enumerate(_fc['forecasts'].items()):
-                _col = _fc_cols[_fi % 3]
                 _arrow = '↑' if _info['trend'] == 'increasing' else '↓' if _info['trend'] == 'decreasing' else '→'
-                _col.metric(
-                    f'{_cat} {_arrow}',
-                    f"{_info['next_month_forecast']:,.2f}",
-                    delta=f"avg {_info['current_avg']:,.2f}",
-                )
-        elif not _fc['success']:
+                _fc_cols[_fi % 3].metric(f'{_cat} {_arrow}', f"{_info['next_month_forecast']:,.2f}", delta=f"avg {_info['current_avg']:,.2f}")
+        else:
             st.info('Not enough expense history to generate a forecast yet.')
     except Exception as _e:
         st.info(f'Forecast unavailable: {_e}')
@@ -98,9 +117,13 @@ with tab_dashboard:
     # ── Anomaly detection ────────────────────────────────────────────────────
     st.subheader('Unusual Expenses')
     try:
-        from backend.analytics import detect_anomalies
-        _ad = detect_anomalies(st.session_state.expenses)
-        if _ad['anomalies']:
+        if USE_LOCAL_BACKEND:
+            from backend.analytics import detect_anomalies
+            _ad = detect_anomalies(st.session_state.expenses)
+        else:
+            _resp = _backend_post('/detect-anomalies', {'expenses': st.session_state.expenses, 'z_threshold': 2.5})
+            _ad = _resp.json() if _resp.ok else {'anomalies': []}
+        if _ad.get('anomalies'):
             st.caption(f"{_ad['count']} statistically unusual expense(s) detected:")
             for _anom in _ad['anomalies']:
                 _dev_sign = '+' if _anom['deviation'] > 0 else ''
@@ -119,30 +142,26 @@ with tab_dashboard:
 
     # ── Natural language query ───────────────────────────────────────────────
     st.subheader('Ask About Your Finances')
-    try:
-        from backend.ai import is_configured as _ai_ok, answer_query as _answer_query
-        if not _ai_ok():
-            st.info('Set AI_API_KEY (and optionally AI_PROVIDER, AI_MODEL) to enable natural-language queries.')
-        else:
-            _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input')
-            if st.button('Ask', key='nl_query_btn') and _nl_question.strip():
-                with st.spinner('Thinking …'):
-                    _nl_data = {
-                        'expenses': st.session_state.expenses,
-                        'income': st.session_state.income,
-                        'budget': st.session_state.budget,
-                        'subscriptions': st.session_state.subscriptions,
-                        'goals': st.session_state.goals,
-                    }
-                    try:
-                        _nl_answer = _answer_query(_nl_question, _nl_data)
-                        st.session_state['nl_last_answer'] = _nl_answer
-                    except Exception as _exc:
-                        st.error(f'Query failed: {_exc}')
-            if st.session_state.get('nl_last_answer'):
-                st.markdown(st.session_state['nl_last_answer'])
-    except Exception as _e:
-        st.info(f'AI query unavailable: {_e}')
+    _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input')
+    if st.button('Ask', key='nl_query_btn') and _nl_question.strip():
+        with st.spinner('Thinking …'):
+            _nl_data = {
+                'expenses': st.session_state.expenses, 'income': st.session_state.income,
+                'budget': st.session_state.budget, 'subscriptions': st.session_state.subscriptions,
+                'goals': st.session_state.goals,
+            }
+            try:
+                if USE_LOCAL_BACKEND:
+                    from backend.ai import answer_query as _answer_query
+                    _nl_answer = _answer_query(_nl_question, _nl_data)
+                else:
+                    _resp = _backend_post('/query', {'question': _nl_question, 'data': _nl_data})
+                    _nl_answer = _resp.json().get('answer', _resp.text) if _resp.ok else f'Error {_resp.status_code}'
+                st.session_state['nl_last_answer'] = _nl_answer
+            except Exception as _exc:
+                st.error(f'Query failed: {_exc}')
+    if st.session_state.get('nl_last_answer'):
+        st.markdown(st.session_state['nl_last_answer'])
 
 # ── Add ──────────────────────────────────────────────────────────────────────
 with tab_add:
@@ -511,12 +530,20 @@ with tab_view_expenses:
     else:
         st.write("No expenses found. Add expenses to get started.")
 
-    st.file_uploader('Import expenses from .csv', type=['csv'], key='expenses_file_uploader')
-    if st.session_state.get('expenses_file_uploader'):
-        st.session_state.tracker.import_from_csv('expenses', st.session_state.expenses_file_uploader)
-        sync_data()
-        st.success('Data imported successfully!')
-        st.rerun()
+    with st.form('import_expenses_form', clear_on_submit=True):
+        uploaded_csv = st.file_uploader('Import expenses from .csv', type=['csv'], key='expenses_csv_upload')
+        if st.form_submit_button('Import') and uploaded_csv:
+            import pandas as _pd
+            try:
+                preview = _pd.read_csv(uploaded_csv)
+                st.dataframe(preview.head(3))
+                uploaded_csv.seek(0)
+                st.session_state.tracker.import_from_csv('expenses', uploaded_csv)
+                sync_data()
+                st.success(f'Imported {len(preview)} rows successfully.')
+                st.rerun()
+            except Exception as _e:
+                st.error(f'Import failed: {_e}')
     result = st.session_state.tracker.export_to_csv('expenses', 'expenses.csv')
     if result['success']:
         st.download_button(label='Export expenses to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='expenses.csv', mime='text/csv', key='exp_download')
@@ -550,12 +577,20 @@ with tab_view_income:
     else:
         st.write("No income found. Add income to get started.")
 
-    st.file_uploader('Import income from .csv', type=['csv'], key='income_file_uploader')
-    if st.session_state.get('income_file_uploader'):
-        st.session_state.tracker.import_from_csv('income', st.session_state.income_file_uploader)
-        sync_data()
-        st.success('Data imported successfully!')
-        st.rerun()
+    with st.form('import_income_form', clear_on_submit=True):
+        uploaded_csv = st.file_uploader('Import income from .csv', type=['csv'], key='income_csv_upload')
+        if st.form_submit_button('Import') and uploaded_csv:
+            import pandas as _pd
+            try:
+                preview = _pd.read_csv(uploaded_csv)
+                st.dataframe(preview.head(3))
+                uploaded_csv.seek(0)
+                st.session_state.tracker.import_from_csv('income', uploaded_csv)
+                sync_data()
+                st.success(f'Imported {len(preview)} rows successfully.')
+                st.rerun()
+            except Exception as _e:
+                st.error(f'Import failed: {_e}')
     result = st.session_state.tracker.export_to_csv('income', 'income.csv')
     if result['success']:
         st.download_button(label='Export income to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='income.csv', mime='text/csv', key='inc_download')
@@ -584,12 +619,20 @@ with tab_view_subscriptions:
     else:
         st.write("No subscriptions found. Add subscriptions to get started.")
 
-    st.file_uploader('Import subscriptions from .csv', type=['csv'], key='subscriptions_file_uploader')
-    if st.session_state.get('subscriptions_file_uploader'):
-        st.session_state.tracker.import_from_csv('subscriptions', st.session_state.subscriptions_file_uploader)
-        sync_data()
-        st.success('Data imported successfully!')
-        st.rerun()
+    with st.form('import_subscriptions_form', clear_on_submit=True):
+        uploaded_csv = st.file_uploader('Import subscriptions from .csv', type=['csv'], key='subscriptions_csv_upload')
+        if st.form_submit_button('Import') and uploaded_csv:
+            import pandas as _pd
+            try:
+                preview = _pd.read_csv(uploaded_csv)
+                st.dataframe(preview.head(3))
+                uploaded_csv.seek(0)
+                st.session_state.tracker.import_from_csv('subscriptions', uploaded_csv)
+                sync_data()
+                st.success(f'Imported {len(preview)} rows successfully.')
+                st.rerun()
+            except Exception as _e:
+                st.error(f'Import failed: {_e}')
     result = st.session_state.tracker.export_to_csv('subscriptions', 'subscriptions.csv')
     if result['success']:
         st.download_button(label='Export subscriptions to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='subscriptions.csv', mime='text/csv', key='sub_download')
