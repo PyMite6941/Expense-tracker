@@ -6,6 +6,7 @@ from analytics import (
     forecast_spending, detect_anomalies, tax_summary,
     financial_health_score, upcoming_renewals, goal_progress,
     spending_by_category, monthly_totals,
+    savings_rate_history, budget_utilization, income_vs_expenses, monthly_comparison,
 )
 from ai import answer_query, recommend_budgets, is_configured as ai_configured
 
@@ -60,6 +61,28 @@ class SpendingRequest(BaseModel):
 class BudgetRecommendRequest(BaseModel):
     expenses: list
     existing_budgets: list = []
+
+
+class SavingsRateRequest(BaseModel):
+    income: list
+    expenses: list
+
+
+class BudgetUtilizationRequest(BaseModel):
+    expenses: list
+    budget: list
+    month: str
+
+
+class IncomeVsExpensesRequest(BaseModel):
+    income: list
+    expenses: list
+
+
+class MonthlyComparisonRequest(BaseModel):
+    expenses: list
+    month_a: str
+    month_b: str
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -151,3 +174,23 @@ def budget_recommendations(req: BudgetRecommendRequest):
         return recommend_budgets(req.expenses, req.existing_budgets)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/savings-rate')
+def savings_rate(req: SavingsRateRequest):
+    return savings_rate_history(req.income, req.expenses)
+
+
+@app.post('/budget-utilization')
+def bud_util(req: BudgetUtilizationRequest):
+    return {'utilization': budget_utilization(req.expenses, req.budget, req.month)}
+
+
+@app.post('/income-vs-expenses')
+def inc_vs_exp(req: IncomeVsExpensesRequest):
+    return income_vs_expenses(req.income, req.expenses)
+
+
+@app.post('/monthly-comparison')
+def month_compare(req: MonthlyComparisonRequest):
+    return monthly_comparison(req.expenses, req.month_a, req.month_b)

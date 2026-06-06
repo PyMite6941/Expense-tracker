@@ -11,6 +11,18 @@ port = 8000
 [streamlit]
 port = 8501
 
+# ── UI ─────────────────────────────────────────────────────────────────────────
+[ui]
+# Title shown at the top of the web app
+app_title = "Web-based Expense and Income Tracking"
+# Date display format used throughout the UI (Python strftime)
+date_format = "%Y-%m-%d"
+# Maximum rows shown in list views before truncating
+items_per_page = 50
+# Number of recent months shown in the savings rate panel
+savings_rate_months = 6
+
+# ── AI ─────────────────────────────────────────────────────────────────────────
 [ai]
 # Provider: "groq" or "openrouter" — add more in backend/ai.py _PROVIDERS dict
 # Override at runtime with AI_PROVIDER env var
@@ -25,38 +37,94 @@ model = ""
 # Do NOT put your key here — set the AI_API_KEY environment variable instead
 api_key = ""
 
+# Max tokens returned by the AI for budget recommendations
+budget_recommend_max_tokens = 200
+
+# ── OCR ────────────────────────────────────────────────────────────────────────
 [ocr]
 # Set GOOGLE_APPLICATION_CREDENTIALS env var to the path of your service-account JSON
-# e.g. export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
 credentials_file = ""
 max_upload_mb = 10
 
+# ── Alerts ─────────────────────────────────────────────────────────────────────
+[alerts]
+# Show a budget warning bar when spending reaches this percentage of the limit
+budget_warn_pct = 80
+# Days ahead to check for upcoming subscription renewals
+renewal_warn_days = 30
+# Z-score threshold for flagging anomalous expenses (higher = fewer alerts)
+anomaly_z_threshold = 2.5
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
 [analytics]
 base_currency = "USD"
-anomaly_z_threshold = 2.5
-upcoming_renewals_days = 30
 
 [analytics.tax]
 # Categories treated as potentially deductible in the tax summary
 deductible_categories = ["Bills", "Utilities", "Other"]
 
-[export]
-pdf_output_dir = "."
-csv_output_dir = "."
+# ── Charts ─────────────────────────────────────────────────────────────────────
+[charts]
+# Hex colour for primary series (bars, lines)
+primary_color = "#4F81BD"
+# Hex colour for secondary / comparison series
+secondary_color = "#ED7D31"
+# Hex colour for income series
+income_color = "#70AD47"
+# Show numeric labels on bar charts
+show_value_labels = true
+# Default figure size in inches
+figure_width = 4
+figure_height = 3
 
+# ── Currency ───────────────────────────────────────────────────────────────────
+[currency]
+# Timeout in seconds for Frankfurter API calls
+api_timeout = 5
+# If true, prompt to convert all expenses to default_currency on add
+auto_convert_on_add = false
+
+# ── Backup ─────────────────────────────────────────────────────────────────────
+[backup]
+# Directory where backup files are written (relative to project root)
+directory = "backups"
+# Maximum number of backup files to keep (oldest are pruned)
+keep_last_n = 10
+
+# ── Export ─────────────────────────────────────────────────────────────────────
+[export]
+# PDF page size: "letter" or "A4"
+pdf_page_size = "letter"
+# CSV field delimiter
+csv_delimiter = ","
+# Include column headers in CSV exports
+csv_include_headers = true
+# Include a totals summary section in PDF exports
+pdf_include_summary = true
+# Directory for output files
+output_dir = "."
+
+# ── Features ───────────────────────────────────────────────────────────────────
+# Set any to false to disable the feature in the UI
 [features]
-# Toggle any feature off by setting it to false
-net_worth_snapshot   = true
-spending_forecast    = true
-anomaly_detection    = true
-spending_charts      = true
-duplicate_cleanup    = true
-ai_categorization    = true
-ai_budget_recommend  = true
-nl_query             = true
-financial_health     = true
-renewal_alerts       = true
-goal_progress        = true
-tax_summary          = true
-pdf_export           = true
-receipt_ocr          = true
+net_worth_snapshot      = true
+savings_rate            = true
+spending_forecast       = true
+anomaly_detection       = true
+financial_health        = true
+renewal_alerts          = true
+goal_progress           = true
+spending_charts         = true
+month_comparison        = true
+income_vs_expenses      = true
+budget_utilization      = true
+duplicate_cleanup       = true
+apply_all_recurring     = true
+monthly_summary_export  = true
+backup_restore          = true
+ai_categorization       = true
+ai_budget_recommend     = true
+nl_query                = true
+tax_summary             = true
+pdf_export              = true
+receipt_ocr             = true

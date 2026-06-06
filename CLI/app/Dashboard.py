@@ -45,6 +45,24 @@ with tab_dashboard:
         elif limit == total_spent:
             st.warning(f"{budget['category']} budget has reached its limit.")
 
+    # ── Budget utilization bars ──────────────────────────────────────────────
+    if st.session_state.budget:
+        try:
+            from backend.analytics import budget_utilization as _bud_util
+            _bu_items = _bud_util(st.session_state.expenses, st.session_state.budget, st.session_state.current_month)
+            if _bu_items:
+                st.caption('Budget utilization this month:')
+                for _bu in _bu_items:
+                    _pct = _bu['percent']
+                    _bar_color = 'normal' if _pct < 80 else ('off' if _pct < 100 else 'off')
+                    st.markdown(
+                        f"**{_bu['category']}** — {_bu['spent']:.2f} / {_bu['limit']:.2f} {_bu['currency']} "
+                        f"({_pct:.1f}%)"
+                    )
+                    st.progress(min(1.0, _pct / 100))
+        except Exception:
+            pass
+
     st.divider()
 
     # ── Net-worth snapshot ───────────────────────────────────────────────────
@@ -69,6 +87,25 @@ with tab_dashboard:
             _nw_cols2[1].metric('Goal Contributions to Date', f"{_nw['goal_contributions_to_date']:,.2f} {_nw['base_currency']}")
     except Exception as _e:
         st.info(f'Net-worth snapshot unavailable: {_e}')
+
+    # ── Savings rate ─────────────────────────────────────────────────────────
+    st.subheader('Savings Rate')
+    try:
+        from backend.analytics import savings_rate_history as _srh
+        _sr = _srh(st.session_state.income, st.session_state.expenses)
+        if _sr['success'] and _sr['history']:
+            _recent_months = sorted(_sr['history'].keys())[-6:]
+            _sr_cols = st.columns(len(_recent_months))
+            for _sri, _srm in enumerate(_recent_months):
+                _srd = _sr['history'][_srm]
+                _rate = _srd['rate_pct']
+                _rate_str = f"{_rate:.1f}%" if _rate is not None else 'N/A'
+                _delta_color = 'normal' if (_rate or 0) >= 20 else 'inverse'
+                _sr_cols[_sri].metric(_srm, _rate_str, delta=f"{_srd['savings']:+.2f}")
+        else:
+            st.info('Add income and expenses to track savings rate.')
+    except Exception as _e:
+        st.info(f'Savings rate unavailable: {_e}')
 
     st.divider()
 
@@ -226,6 +263,59 @@ with tab_dashboard:
     except Exception as _e:
         st.info(f'AI query unavailable: {_e}')
 
+    st.divider()
+
+    # ── Monthly summary export ───────────────────────────────────────────────
+    st.subheader('Monthly Summary Export')
+    _ms_col1, _ms_col2 = st.columns(2)
+    with _ms_col1:
+        _ms_exp_result = st.session_state.tracker.export_to_pdf('expenses', f'expenses_{st.session_state.current_month}.pdf')
+        if _ms_exp_result['success']:
+            st.download_button(
+                label=f'Download Expenses PDF ({st.session_state.current_month})',
+                data=_ms_exp_result['data'],
+                file_name=f'expenses_{st.session_state.current_month}.pdf',
+                mime='application/pdf',
+                key='ms_exp_pdf',
+            )
+    with _ms_col2:
+        _ms_inc_result = st.session_state.tracker.export_to_pdf('income', f'income_{st.session_state.current_month}.pdf')
+        if _ms_inc_result['success']:
+            st.download_button(
+                label=f'Download Income PDF ({st.session_state.current_month})',
+                data=_ms_inc_result['data'],
+                file_name=f'income_{st.session_state.current_month}.pdf',
+                mime='application/pdf',
+                key='ms_inc_pdf',
+            )
+
+    st.divider()
+
+    # ── Backup & restore ─────────────────────────────────────────────────────
+    st.subheader('Backup & Restore')
+    _bk_col1, _bk_col2 = st.columns(2)
+    with _bk_col1:
+        if st.button('Create backup now', key='create_backup_btn'):
+            _bk_result = st.session_state.tracker.backup_data()
+            if _bk_result['success']:
+                st.success(_bk_result['message'])
+            else:
+                st.error(_bk_result['message'])
+    with _bk_col2:
+        _bk_list = st.session_state.tracker.list_backups()
+        if _bk_list['success'] and _bk_list['backups']:
+            _bk_choice = st.selectbox('Restore from backup', options=_bk_list['backups'], key='restore_select')
+            if st.button('Restore selected backup', key='restore_btn'):
+                _rs_result = st.session_state.tracker.restore_data(_bk_choice)
+                if _rs_result['success']:
+                    st.success(_rs_result['message'])
+                    sync_data()
+                    st.rerun()
+                else:
+                    st.error(_rs_result['message'])
+        else:
+            st.info('No backups found. Create one above.')
+
 # ── Add ──────────────────────────────────────────────────────────────────────
 with tab_add:
     st.subheader('Add Material')
@@ -284,6 +374,12 @@ with tab_add:
             if not st.session_state.recurring_expenses:
                 st.write("No recurring expenses found.")
             else:
+                if st.button('Apply all recurring expenses for this month', key='apply_all_rec_exp'):
+                    _aar = st.session_state.tracker.apply_all_recurring(st.session_state.current_month)
+                    st.success(_aar['message'])
+                    sync_data()
+                    st.rerun()
+                st.divider()
                 for idx, expense in enumerate(st.session_state.recurring_expenses):
                     col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
                     with col1:
@@ -345,6 +441,12 @@ with tab_add:
             if not st.session_state.recurring_income:
                 st.write("No recurring income found.")
             else:
+                if st.button('Apply all recurring income for this month', key='apply_all_rec_inc'):
+                    _aari = st.session_state.tracker.apply_all_recurring(st.session_state.current_month)
+                    st.success(_aari['message'])
+                    sync_data()
+                    st.rerun()
+                st.divider()
                 for idx, income in enumerate(st.session_state.recurring_income):
                     col1, col2, col3 = st.columns([3, 2, 2])
                     with col1:
@@ -643,14 +745,46 @@ with tab_view_expenses:
                         _plt.close(_fig2)
                     else:
                         st.info('Need at least 2 months of data for a trend chart.')
+
+                # Month comparison chart
+                if len(_months) >= 2:
+                    st.markdown('**Compare two months:**')
+                    _cmp_col1, _cmp_col2 = st.columns(2)
+                    _cmp_a = _cmp_col1.selectbox('Month A', options=_months, index=max(0, len(_months)-2), key='cmp_month_a')
+                    _cmp_b = _cmp_col2.selectbox('Month B', options=_months, index=len(_months)-1, key='cmp_month_b')
+                    if _cmp_a != _cmp_b:
+                        from backend.analytics import monthly_comparison as _mc
+                        _cmp = _mc(st.session_state.expenses, _cmp_a, _cmp_b)
+                        if _cmp['categories']:
+                            import numpy as _np
+                            _fig3, _ax3 = _plt.subplots(figsize=(8, 3))
+                            _x = _np.arange(len(_cmp['categories']))
+                            _w = 0.35
+                            _ax3.bar(_x - _w/2, _cmp['values_a'], _w, label=_cmp_a, color='#4F81BD')
+                            _ax3.bar(_x + _w/2, _cmp['values_b'], _w, label=_cmp_b, color='#ED7D31')
+                            _ax3.set_xticks(_x)
+                            _ax3.set_xticklabels(_cmp['categories'], rotation=30, ha='right')
+                            _ax3.legend()
+                            _ax3.set_title(f'{_cmp_a} vs {_cmp_b}')
+                            _plt.tight_layout()
+                            st.pyplot(_fig3)
+                            _plt.close(_fig3)
         except Exception as _chart_err:
             st.info(f'Charts unavailable: {_chart_err}')
 
-    search = st.text_input('Search expenses ...', '', key='view_exp_search')
+    import datetime as _dt_exp
+    _exp_filter_cols = st.columns([3, 2, 2])
+    search = _exp_filter_cols[0].text_input('Search expenses ...', '', key='view_exp_search')
+    _exp_date_from = _exp_filter_cols[1].date_input('From', value=None, key='view_exp_date_from')
+    _exp_date_to = _exp_filter_cols[2].date_input('To', value=None, key='view_exp_date_to')
+
+    expenses = st.session_state.expenses
     if search:
-        expenses = [e for e in st.session_state.expenses if search.lower() in e['tags'].lower() or search.lower() in (e['notes'] or '').lower()]
-    else:
-        expenses = st.session_state.expenses
+        expenses = [e for e in expenses if search.lower() in e['tags'].lower() or search.lower() in (e['notes'] or '').lower()]
+    if _exp_date_from:
+        expenses = [e for e in expenses if e.get('date', '') >= str(_exp_date_from)]
+    if _exp_date_to:
+        expenses = [e for e in expenses if e.get('date', '') <= str(_exp_date_to)]
 
     if expenses:
         for expense in expenses:
@@ -685,11 +819,45 @@ with tab_view_expenses:
 # ── View Income ──────────────────────────────────────────────────────────────
 with tab_view_income:
     st.subheader('View Income')
-    search = st.text_input('Search income ...', '', key='view_inc_search')
+
+    # Income vs expenses chart
+    if st.session_state.income or st.session_state.expenses:
+        try:
+            import matplotlib.pyplot as _plt_inc
+            from backend.analytics import income_vs_expenses as _ive
+            with st.expander('Income vs Expenses', expanded=False):
+                _ive_result = _ive(st.session_state.income, st.session_state.expenses)
+                if len(_ive_result['months']) >= 1:
+                    _fig_ive, _ax_ive = _plt_inc.subplots(figsize=(8, 3))
+                    import numpy as _np_inc
+                    _x_ive = _np_inc.arange(len(_ive_result['months']))
+                    _w_ive = 0.35
+                    _ax_ive.bar(_x_ive - _w_ive/2, _ive_result['income'], _w_ive, label='Income', color='#70AD47')
+                    _ax_ive.bar(_x_ive + _w_ive/2, _ive_result['expenses'], _w_ive, label='Expenses', color='#ED7D31')
+                    _ax_ive.set_xticks(_x_ive)
+                    _ax_ive.set_xticklabels(_ive_result['months'], rotation=45, ha='right')
+                    _ax_ive.legend()
+                    _ax_ive.set_title('Monthly Income vs Expenses')
+                    _plt_inc.tight_layout()
+                    st.pyplot(_fig_ive)
+                    _plt_inc.close(_fig_ive)
+                else:
+                    st.info('Not enough data for chart.')
+        except Exception as _e_ive:
+            st.info(f'Chart unavailable: {_e_ive}')
+
+    _inc_filter_cols = st.columns([3, 2, 2])
+    search = _inc_filter_cols[0].text_input('Search income ...', '', key='view_inc_search')
+    _inc_date_from = _inc_filter_cols[1].date_input('From', value=None, key='view_inc_date_from')
+    _inc_date_to = _inc_filter_cols[2].date_input('To', value=None, key='view_inc_date_to')
+
+    income_list = st.session_state.income
     if search:
-        income_list = [i for i in st.session_state.income if search.lower() in i['source'].lower() or search.lower() in (i['notes'] or '').lower()]
-    else:
-        income_list = st.session_state.income
+        income_list = [i for i in income_list if search.lower() in i['source'].lower() or search.lower() in (i['notes'] or '').lower()]
+    if _inc_date_from:
+        income_list = [i for i in income_list if i.get('date', '') >= str(_inc_date_from)]
+    if _inc_date_to:
+        income_list = [i for i in income_list if i.get('date', '') <= str(_inc_date_to)]
 
     if income_list:
         for income_item in income_list:

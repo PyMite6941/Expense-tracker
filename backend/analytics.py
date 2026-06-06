@@ -381,3 +381,101 @@ def monthly_totals(expenses: list) -> dict:
         'success': True,
         'monthly': {k: round(v, 2) for k, v in sorted(totals.items())},
     }
+
+
+def savings_rate_history(income: list, expenses: list) -> dict:
+    """Monthly savings rate (%) for every month that has income data."""
+    monthly_inc: dict = defaultdict(float)
+    monthly_exp: dict = defaultdict(float)
+    for i in income:
+        m = i.get('date', '')[:7]
+        if m:
+            monthly_inc[m] += i.get('amount', 0.0)
+    for e in expenses:
+        m = e.get('date', '')[:7]
+        if m:
+            monthly_exp[m] += e.get('price', 0.0)
+
+    all_months = sorted(set(list(monthly_inc.keys()) + list(monthly_exp.keys())))
+    history = {}
+    for m in all_months:
+        inc = monthly_inc.get(m, 0.0)
+        exp = monthly_exp.get(m, 0.0)
+        rate = round((inc - exp) / inc * 100, 1) if inc > 0 else None
+        history[m] = {
+            'income': round(inc, 2),
+            'expenses': round(exp, 2),
+            'savings': round(inc - exp, 2),
+            'rate_pct': rate,
+        }
+    return {'success': True, 'history': history}
+
+
+def budget_utilization(expenses: list, budget: list, month: str) -> list:
+    """Per-budget-category spend vs limit for a given month."""
+    totals: dict = defaultdict(float)
+    for e in expenses:
+        if e.get('date', '').startswith(month):
+            totals[e.get('tags', 'Other')] += e.get('price', 0.0)
+
+    result = []
+    for b in budget:
+        cat = b['category']
+        limit = float(b.get('amount', 0))
+        spent = totals.get(cat, 0.0)
+        pct = round(spent / limit * 100, 1) if limit > 0 else 0.0
+        result.append({
+            'category': cat,
+            'limit': round(limit, 2),
+            'spent': round(spent, 2),
+            'remaining': round(max(0.0, limit - spent), 2),
+            'percent': pct,
+            'currency': b.get('currency', 'USD'),
+        })
+    result.sort(key=lambda x: -x['percent'])
+    return result
+
+
+def income_vs_expenses(income: list, expenses: list) -> dict:
+    """Monthly income and expense totals side-by-side, sorted chronologically."""
+    monthly_inc: dict = defaultdict(float)
+    monthly_exp: dict = defaultdict(float)
+    for i in income:
+        m = i.get('date', '')[:7]
+        if m:
+            monthly_inc[m] += i.get('amount', 0.0)
+    for e in expenses:
+        m = e.get('date', '')[:7]
+        if m:
+            monthly_exp[m] += e.get('price', 0.0)
+
+    all_months = sorted(set(list(monthly_inc.keys()) + list(monthly_exp.keys())))
+    return {
+        'success': True,
+        'months': all_months,
+        'income': [round(monthly_inc.get(m, 0.0), 2) for m in all_months],
+        'expenses': [round(monthly_exp.get(m, 0.0), 2) for m in all_months],
+    }
+
+
+def monthly_comparison(expenses: list, month_a: str, month_b: str) -> dict:
+    """Compare category spending between two months."""
+    cats_a: dict = defaultdict(float)
+    cats_b: dict = defaultdict(float)
+    for e in expenses:
+        m = e.get('date', '')[:7]
+        cat = e.get('tags', 'Other')
+        if m == month_a:
+            cats_a[cat] += e.get('price', 0.0)
+        elif m == month_b:
+            cats_b[cat] += e.get('price', 0.0)
+
+    all_cats = sorted(set(list(cats_a.keys()) + list(cats_b.keys())))
+    return {
+        'success': True,
+        'categories': all_cats,
+        'month_a': month_a,
+        'month_b': month_b,
+        'values_a': [round(cats_a.get(c, 0.0), 2) for c in all_cats],
+        'values_b': [round(cats_b.get(c, 0.0), 2) for c in all_cats],
+    }

@@ -1,5 +1,6 @@
 # This is used to process lists, especially writing and reading files as seen in the open_file() and write_file() functions
 import json
+import os
 # This is for creating and using graphs effectively
 import matplotlib.pyplot as plt
 # This is to import and export .csv files easily
@@ -834,6 +835,69 @@ class ExpenseTracker():
         if count < 1:
             return {'success':False,'message':'No duplicates found'}
         return {'success':True,'message':f'Removed {count} duplicates'}
+
+
+    # Apply all recurring expenses and income for a given month
+    def apply_all_recurring(self, month: Optional[str] = None) -> Dict[str, Any]:
+        from datetime import datetime as _dt
+        if month is None:
+            month = _dt.now().strftime('%Y-%m')
+        date_str = f'{month}-01'
+        result = self.open_file()
+        data = result['data']
+        count = 0
+        for rec in data.get('recurring_expenses', []):
+            r = self.add_expenses(rec['amount'], rec['purchased'], rec['tags'], rec['currency'], date_str, 'Applied from recurring')
+            if r['success']:
+                count += 1
+        for rec in data.get('recurring_income', []):
+            r = self.add_income(rec['amount'], rec['source'], date_str, rec['currency'], 'Applied from recurring')
+            if r['success']:
+                count += 1
+        return {'success': True, 'message': f'Applied {count} recurring item(s) for {month}'}
+
+    # Create a timestamped backup of the data file
+    def backup_data(self, backup_dir: str = 'backups', keep_last_n: int = 10) -> Dict[str, Any]:
+        import shutil
+        from datetime import datetime as _dt
+        os.makedirs(backup_dir, exist_ok=True)
+        timestamp = _dt.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = os.path.join(backup_dir, f'data_{timestamp}.json')
+        try:
+            shutil.copy2(self.filename, backup_path)
+        except FileNotFoundError:
+            return {'success': False, 'message': f'Data file not found: {self.filename}'}
+        backups = sorted(
+            os.path.join(backup_dir, f) for f in os.listdir(backup_dir)
+            if f.startswith('data_') and f.endswith('.json')
+        )
+        while len(backups) > keep_last_n:
+            os.remove(backups.pop(0))
+        return {'success': True, 'message': f'Backed up to {backup_path}', 'path': backup_path}
+
+    # List available backups newest-first
+    def list_backups(self, backup_dir: str = 'backups') -> Dict[str, Any]:
+        if not os.path.isdir(backup_dir):
+            return {'success': False, 'message': 'No backups directory found', 'backups': []}
+        backups = sorted(
+            [f for f in os.listdir(backup_dir) if f.startswith('data_') and f.endswith('.json')],
+            reverse=True,
+        )
+        return {'success': True, 'backups': backups, 'directory': backup_dir}
+
+    # Restore data from a named backup file
+    def restore_data(self, backup_file: str, backup_dir: str = 'backups') -> Dict[str, Any]:
+        import shutil
+        path = os.path.join(backup_dir, backup_file)
+        if not os.path.isfile(path):
+            return {'success': False, 'message': f'Backup not found: {path}'}
+        try:
+            with open(path, 'r') as f:
+                json.load(f)
+        except json.JSONDecodeError:
+            return {'success': False, 'message': 'Backup file is not valid JSON'}
+        shutil.copy2(path, self.filename)
+        return {'success': True, 'message': f'Restored from {backup_file}'}
 
 
 __version__ = "v1.2"
