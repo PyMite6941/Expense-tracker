@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Optional
 
@@ -6,10 +7,17 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from analytics import detect_anomalies, forecast_spending, net_worth_snapshot, tax_summary
-from ai import answer_query, is_configured as ai_configured
+from analytics import (
+    budget_utilization, detect_anomalies, financial_health_score, forecast_spending,
+    goal_progress, income_vs_expenses, monthly_comparison, monthly_totals,
+    net_worth_snapshot, savings_rate_history, spending_by_category, tax_summary,
+    upcoming_renewals,
+)
+from ai import answer_query, is_configured as ai_configured, recommend_budgets
 from bots import AdvancedCategorizationCrew
 from ocr import parse_receipt
+
+log = logging.getLogger(__name__)
 
 app = FastAPI()
 security = HTTPBearer()
@@ -17,6 +25,15 @@ security = HTTPBearer()
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 ALGORITHM = "HS256"
+
+
+@app.on_event("startup")
+def _check_jwt_secret():
+    if JWT_SECRET == "change-me-in-production":
+        log.warning(
+            "JWT_SECRET is using the insecure default value. "
+            "Set the JWT_SECRET environment variable before deploying to production."
+        )
 
 
 def require_pro(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -60,6 +77,60 @@ class NetWorthRequest(BaseModel):
 class QueryRequest(BaseModel):
     question: str
     data: dict
+
+
+class HealthScoreRequest(BaseModel):
+    expenses: list
+    income: list
+    budget: list = []
+    subscriptions: list = []
+    goals: list = []
+
+
+class UpcomingRenewalsRequest(BaseModel):
+    subscriptions: list
+    days_ahead: int = 30
+
+
+class GoalProgressRequest(BaseModel):
+    goals: list
+
+
+class SpendingByCategoryRequest(BaseModel):
+    expenses: list
+    month: Optional[str] = None
+
+
+class MonthlyTotalsRequest(BaseModel):
+    entries: list
+    amount_field: str = 'price'
+
+
+class SavingsRateRequest(BaseModel):
+    expenses: list
+    income: list
+
+
+class BudgetUtilizationRequest(BaseModel):
+    expenses: list
+    budget: list
+    month: Optional[str] = None
+
+
+class IncomeVsExpensesRequest(BaseModel):
+    expenses: list
+    income: list
+
+
+class MonthlyComparisonRequest(BaseModel):
+    expenses: list
+    month_a: str
+    month_b: str
+
+
+class RecommendBudgetsRequest(BaseModel):
+    expenses: list
+    income: list
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -122,6 +193,63 @@ def query(req: QueryRequest):
     try:
         answer = answer_query(req.question, req.data)
         return {'answer': answer}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/health-score')
+def health_score(req: HealthScoreRequest):
+    data = {'expenses': req.expenses, 'income': req.income, 'budget': req.budget,
+            'subscriptions': req.subscriptions, 'goals': req.goals}
+    return financial_health_score(data)
+
+
+@app.post('/upcoming-renewals')
+def renewals(req: UpcomingRenewalsRequest):
+    return upcoming_renewals(req.subscriptions, days_ahead=req.days_ahead)
+
+
+@app.post('/goal-progress')
+def goals(req: GoalProgressRequest):
+    return goal_progress(req.goals)
+
+
+@app.post('/spending-by-category')
+def by_category(req: SpendingByCategoryRequest):
+    return spending_by_category(req.expenses, month=req.month)
+
+
+@app.post('/monthly-totals')
+def totals(req: MonthlyTotalsRequest):
+    return monthly_totals(req.entries, amount_field=req.amount_field)
+
+
+@app.post('/savings-rate')
+def savings(req: SavingsRateRequest):
+    return savings_rate_history(req.expenses, req.income)
+
+
+@app.post('/budget-utilization')
+def utilization(req: BudgetUtilizationRequest):
+    return budget_utilization(req.expenses, req.budget, month=req.month)
+
+
+@app.post('/income-vs-expenses')
+def inc_vs_exp(req: IncomeVsExpensesRequest):
+    return income_vs_expenses(req.expenses, req.income)
+
+
+@app.post('/monthly-comparison')
+def comparison(req: MonthlyComparisonRequest):
+    return monthly_comparison(req.expenses, req.month_a, req.month_b)
+
+
+@app.post('/recommend-budgets')
+def recommend(req: RecommendBudgetsRequest):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        return recommend_budgets(req.expenses, req.income)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 

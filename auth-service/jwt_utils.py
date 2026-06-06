@@ -1,8 +1,16 @@
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 
+log = logging.getLogger(__name__)
+
 SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+if SECRET_KEY == "change-me-in-production":
+    log.warning(
+        "JWT_SECRET is using the insecure default. "
+        "Set JWT_SECRET in your environment before deploying."
+    )
 ALGORITHM = "HS256"
 
 TIER_FEATURES = {
