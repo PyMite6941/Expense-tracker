@@ -76,13 +76,38 @@ class ExpenseTracker():
         result = self.open_file()
         data = result['data']
         processList = data[listName]
+
+        # If the list is empty, return an error
+        if not processList:
+            return {'success': False, 'message': f'No {listName} found to create graph'}
+
         # Set up graph components
-        fig,ax = plt.subplot()
+        fig, ax = plt.subplots()
+
         # If pie chart
         if graph_type == 'pie':
-            plt.pie(processList.value(),labels=processList.keys())
-            ax.set_title(f'{listName} Pie Chart')
-            return fig
+            if listName == 'expenses':
+                # Extract tags and prices for expenses
+                tags = [item['tags'] for item in processList]
+                prices = [item['price'] for item in processList]
+                ax.pie(prices, labels=tags, autopct='%1.1f%%')
+                ax.set_title(f'{listName} Pie Chart')
+            elif listName == 'income':
+                # Extract sources and amounts for income
+                sources = [item['source'] for item in processList]
+                amounts = [item['amount'] for item in processList]
+                ax.pie(amounts, labels=sources, autopct='%1.1f%%')
+                ax.set_title(f'{listName} Pie Chart')
+            elif listName == 'budget':
+                # Extract categories and amounts for budget
+                categories = [item['category'] for item in processList]
+                amounts = [item['amount'] for item in processList]
+                ax.pie(amounts, labels=categories, autopct='%1.1f%%')
+                ax.set_title(f'{listName} Pie Chart')
+            else:
+                return {'success': False, 'message': f'Pie chart not supported for {listName}'}
+
+            return {'success': True, 'data': fig}
         
     # Get the currency symbol from self.currency_symbols
     def get_currency_symbols(self,currency:str) -> str:
@@ -239,9 +264,9 @@ class ExpenseTracker():
     def view_income(self) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
+        if not result['success']:
+            return {'success':False,'message':result['message']}
         data = result['data']
-        if not data['income']:
-            return {'success':False,'message':'No income found.'}
         incomeList = data['income']
         return {'success':True,'data':incomeList}
 
@@ -283,7 +308,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Income recorded successfully'}
 
     # Edit income data
-    def edit_income(self,expense_id:int,amount:Optional[float]=None,purchased:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
+    def edit_income(self,income_id:int,amount:Optional[float]=None,source:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -293,12 +318,12 @@ class ExpenseTracker():
                 return {'success':False,'message':'No income to process.'}
             count = 0
             for income in incomeList:
-                if income['id'] == expense_id:
+                if income['id'] == income_id:
                     count += 1
                     if amount is not None:
                         income['amount'] = amount
-                    if purchased is not None:
-                        income['source'] = purchased
+                    if source is not None:
+                        income['source'] = source
                     if date is not None:
                         income['date'] = date
                     if currency is not None:
@@ -655,7 +680,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Goal successfully deleted'}
 
     # Add recurring expense
-    def add_recurring_expense(self,amount:Optional[float],purchased:Optional[str],tags:Optional[str],currency:Optional[str]) -> Dict[bool,str]:
+    def add_recurring_expense(self,amount:float,purchased:str,tags:str,currency:str) -> Dict[bool,str]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -681,7 +706,7 @@ class ExpenseTracker():
         return {'success':True,'data':recurringList}
 
     # Add recurring income
-    def add_recurring_income(self,amount:Optional[float],source:Optional[str],currency:Optional[str]) -> Dict[bool,str]:
+    def add_recurring_income(self,amount:float,source:str,currency:str) -> Dict[bool,str]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -704,6 +729,72 @@ class ExpenseTracker():
         data = result['data']
         recurringList = data['recurring_income']
         return {'success':True,'data':recurringList}
+
+    # Detect recurring expenses
+    def detect_recurring_expenses(self, min_occurrences: int = 3, days_threshold: int = 30) -> Dict[str, Any]:
+        """
+        Detect recurring expenses based on similar transactions within a time threshold.
+
+        Args:
+            min_occurrences: Minimum number of occurrences to consider as recurring
+            days_threshold: Maximum days between transactions to consider as the same recurring pattern
+
+        Returns:
+            Dictionary with success status and list of detected recurring expenses
+        """
+        try:
+            result = self.open_file()
+            data = result['data']
+            expenses = data['expenses']
+
+            if not expenses:
+                return {'success': False, 'message': 'No expenses to analyze'}
+
+            # Sort expenses by date
+            expenses.sort(key=lambda x: x['date'])
+
+            # Group expenses by similar characteristics (purchased item and amount)
+            expense_groups = {}
+            for expense in expenses:
+                key = (expense['purchased'].lower(), expense['price'], expense['currency'].lower())
+                if key not in expense_groups:
+                    expense_groups[key] = []
+                expense_groups[key].append(expense)
+
+            # Detect recurring patterns
+            recurring_expenses = []
+            for key, group_expenses in expense_groups.items():
+                if len(group_expenses) >= min_occurrences:
+                    # Check if the expenses occur at regular intervals
+                    dates = [pd.to_datetime(expense['date']) for expense in group_expenses]
+                    intervals = [(dates[i+1] - dates[i]).days for i in range(len(dates)-1)]
+
+                    # Calculate average interval
+                    avg_interval = sum(intervals) / len(intervals)
+
+                    # Check if intervals are consistent (within threshold)
+                    consistent = all(abs(interval - avg_interval) <= days_threshold for interval in intervals)
+
+                    if consistent:
+                        # Calculate next expected date
+                        last_date = dates[-1]
+                        next_expected_date = last_date + pd.Timedelta(days=avg_interval)
+
+                        recurring_expenses.append({
+                            'purchased': key[0],
+                            'price': key[1],
+                            'currency': key[2],
+                            'frequency_days': round(avg_interval),
+                            'occurrences': len(group_expenses),
+                            'next_expected_date': next_expected_date.strftime('%Y-%m-%d'),
+                            'last_date': last_date.strftime('%Y-%m-%d'),
+                            'category': group_expenses[0]['tags']  # Use the category from the first occurrence
+                        })
+
+            return {'success': True, 'data': recurring_expenses}
+
+        except Exception as e:
+            return {'success': False, 'message': f'Error detecting recurring expenses: {str(e)}'}
     
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:

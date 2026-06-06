@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense Tracker Pro</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f13;
+      color: #e8e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 60px 20px 80px;
+    }
+
+    .badge {
+      background: #1e1e2e;
+      border: 1px solid #3d3d5c;
+      color: #a0a0c0;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 20px;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 700;
+      line-height: 1.15;
+      text-align: center;
+      max-width: 680px;
+      margin-bottom: 16px;
+    }
+
+    h1 span { color: #7c6dfa; }
+
+    .sub {
+      color: #8888aa;
+      text-align: center;
+      font-size: 1.05rem;
+      max-width: 520px;
+      line-height: 1.6;
+      margin-bottom: 52px;
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      max-width: 840px;
+      width: 100%;
+      margin-bottom: 52px;
+    }
+
+    .feature {
+      background: #1a1a28;
+      border: 1px solid #2a2a40;
+      border-radius: 12px;
+      padding: 22px 20px;
+    }
+
+    .feature .icon {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+    }
+
+    .feature h3 {
+      font-size: .95rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #d0d0e8;
+    }
+
+    .feature p {
+      font-size: .83rem;
+      color: #6868888;
+      color: #686880;
+      line-height: 1.5;
+    }
+
+    .pricing-card {
+      background: #1a1a28;
+      border: 1px solid #7c6dfa55;
+      border-radius: 16px;
+      padding: 36px 40px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .pricing-card .price {
+      font-size: 3rem;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .pricing-card .price sup {
+      font-size: 1.4rem;
+      vertical-align: super;
+      font-weight: 600;
+    }
+
+    .pricing-card .period {
+      color: #6868880;
+      color: #686880;
+      font-size: .88rem;
+      margin-bottom: 28px;
+    }
+
+    .features-list {
+      list-style: none;
+      text-align: left;
+      margin-bottom: 32px;
+    }
+
+    .features-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: .9rem;
+      color: #c0c0d8;
+      margin-bottom: 10px;
+    }
+
+    .features-list li::before {
+      content: "✓";
+      color: #7c6dfa;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .buy-btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      background: #7c6dfa;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .15s, transform .1s;
+    }
+
+    .buy-btn:hover { background: #6a5ce8; transform: translateY(-1px); }
+    .buy-btn:active { transform: translateY(0); }
+
+    .guarantee {
+      font-size: .78rem;
+      color: #55556880;
+      color: #555568;
+      margin-top: 14px;
+    }
+
+    .how-it-works {
+      max-width: 560px;
+      width: 100%;
+      margin-top: 60px;
+    }
+
+    .how-it-works h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #c8c8e0;
+      text-align: center;
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .step-num {
+      background: #2a2a40;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .8rem;
+      font-weight: 700;
+      color: #7c6dfa;
+      flex-shrink: 0;
+    }
+
+    .step-text { font-size: .9rem; color: #8888a8; line-height: 1.5; padding-top: 5px; }
+    .step-text strong { color: #d0d0e8; }
+  </style>
+</head>
+<body>
+
+  <div class="badge">Expense Tracker Pro</div>
+
+  <h1>Smarter spending insights with <span>AI categorization</span></h1>
+  <p class="sub">
+    Upgrade from basic tracking to AI-powered analysis. Detect hidden patterns,
+    catch anomalies, and get personalized budget recommendations — powered by CrewAI agents.
+  </p>
+
+  <div class="features">
+    <div class="feature">
+      <div class="icon">🏷️</div>
+      <h3>Smart Subcategories</h3>
+      <p>AI reads your notes and tags to assign meaningful subcategories like "Dining Out" vs "Groceries".</p>
+    </div>
+    <div class="feature">
+      <div class="icon">📈</div>
+      <h3>Pattern Detection</h3>
+      <p>Identifies recurring spending clusters and monthly drift across categories.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🚨</div>
+      <h3>Anomaly Alerts</h3>
+      <p>Flags unusual transactions that fall outside your normal spending behavior.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">💡</div>
+      <h3>Budget Recommendations</h3>
+      <p>CrewAI agents generate specific, data-backed suggestions to reduce spending.</p>
+    </div>
+  </div>
+
+  <div class="pricing-card">
+    <div class="price"><sup>$</sup>9</div>
+    <div class="period">one-time · 1-year license</div>
+
+    <ul class="features-list">
+      <li>Advanced AI expense categorization</li>
+      <li>Spending pattern & trend analysis</li>
+      <li>Anomaly detection alerts</li>
+      <li>Personalized budget recommendations</li>
+      <li>License key delivered by email instantly</li>
+    </ul>
+
+    <!--
+      Replace href with your Polar.sh product checkout URL.
+      Dashboard → Products → your product → Copy checkout link.
+    -->
+    <a class="buy-btn" href="https://polar.sh/checkout/REPLACE_WITH_YOUR_PRODUCT_LINK" target="_blank" rel="noopener">
+      Buy Pro — $9
+    </a>
+
+    <p class="guarantee">30-day money-back guarantee · No subscription · No account needed</p>
+  </div>
+
+  <div class="how-it-works">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text"><strong>Purchase above.</strong> Polar.sh processes the payment securely.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text"><strong>Check your email.</strong> Your license key arrives within seconds.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text"><strong>Open the app</strong> and go to <em>Pro Features</em> in the sidebar.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-text"><strong>Paste your key</strong> and click <em>Run Advanced Categorization</em>.</div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

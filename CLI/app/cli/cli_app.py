@@ -350,7 +350,7 @@ class Run:
                     notes = str(questionary.text("Enter any notes (default is ''):\n> ").ask())
                     if not notes.strip():
                         notes = None
-                result = tracker.edit_income(expense_id,amount if amount is not None else None,source if source is not None else None,date if date is not None else None,currency if currency is not None else None,notes if notes is not None else None)
+                result = tracker.edit_income(expense_id,amount=amount if 'Amount' in choice else None,source=source if 'Source' in choice else None,date=date if 'Date' in choice else None,currency=currency if 'Currency' in choice else None,notes=notes if 'Notes' in choice else None)
                 color = 'green' if result['success'] else 'red'
                 console.print(f"[bold {color}]{result['message']}[/bold {color}].")
             # Get the function to delete income
@@ -409,7 +409,9 @@ class Run:
                     price = float(questionary.text("How much is the subscription?\n> ").ask())
                     currency = str(questionary.text("What currency is the subscription in? (default is usd)\n> ").ask())
                     startDate = str(questionary.text("When did the subscription start? (yyyy-mm-dd)\n> ").ask())
-                    result = tracker.add_subscriptions(name,price,currency,startDate)
+                    result = tracker.add_subscriptions(name,price,currency if currency else 'usd',startDate)
+                    color = 'green' if result['success'] else 'red'
+                    console.print(f"[bold {color}]{result['message']}[/bold {color}].")
             # Get the function to edit subscriptions
             elif choice == 'Edit a subscription':
                 previous_name = str(questionary.text("What is the name of the subscription to be edited?\n> ").ask())
@@ -501,7 +503,7 @@ class Run:
                     startDate = str(questionary.text("What is the start date of this goal? (default is today)\n> ").ask())
                     monthContribution = float(questionary.text("What is the monthly contribution from the inputted income?\n> ").ask())
                     currency = str(questionary.text("What is the currency this goal uses?\n> ").ask())
-                    results = tracker.create_goal(name,amount,startDate,monthContribution,currency)
+                    results = tracker.create_goal(name,amount,startDate,monthContribution,currency if currency else 'usd')
                     color = 'green' if results['success'] else 'red'
                     console.print(f"[bold {color}]{results['message']}[/bold {color}].")
             # Get the function to edit a goal

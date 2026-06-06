@@ -1,16 +1,35 @@
-from fastapi import FastAPI, HTTPException, UploadFile
-from pydantic import BaseModel
+import os
 from typing import Optional
-from ocr import parse_receipt
-from analytics import forecast_spending, detect_anomalies, tax_summary
+
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from pydantic import BaseModel
+
+from analytics import detect_anomalies, forecast_spending, tax_summary
 from ai import answer_query, is_configured as ai_configured
+from bots import AdvancedCategorizationCrew
+from ocr import parse_receipt
 
 app = FastAPI()
+security = HTTPBearer()
 
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+ALGORITHM = "HS256"
 
 
-# ── Request models ────────────────────────────────────────────────────────────
+def require_pro(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    try:
+        claims = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired license key")
+    if "advanced_categorization" not in claims.get("features", []):
+        raise HTTPException(status_code=403, detail="This feature requires a Pro license")
+    return claims
+
+
+# ── Request models ─────────────────────────────────────────────────────────────
 
 class ForecastRequest(BaseModel):
     expenses: list
@@ -34,7 +53,7 @@ class QueryRequest(BaseModel):
     data: dict
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @app.get('/health')
 def health():
@@ -88,3 +107,17 @@ def query(req: QueryRequest):
         return {'answer': answer}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/advanced-categorize')
+async def advanced_categorize(request: Request, _claims: dict = Depends(require_pro)):
+    body = await request.json()
+    expenses = body.get('expenses', [])
+    context = body.get('context', 'Categorize and analyze these expenses with advanced subcategories')
+
+    if not expenses:
+        raise HTTPException(status_code=400, detail='No expenses provided')
+
+    crew = AdvancedCategorizationCrew(context=context)
+    result = crew.run(expenses)
+    return result

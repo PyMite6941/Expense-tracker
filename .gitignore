@@ -9,3 +9,4 @@ nul
 *.md
 .env
 pdf_converter.py
+test_backend.py
