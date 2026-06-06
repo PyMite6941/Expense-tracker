@@ -1,29 +1,36 @@
 import hashlib
 import hmac
 import os
-import smtplib
 import sqlite3
 from datetime import datetime
-from email.message import EmailMessage
 
-from fastapi import FastAPI, Header, HTTPException, Request
+import requests as http
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from jwt_utils import create_license_jwt, verify_license_jwt
 
 app = FastAPI(title="Expense Tracker License Service")
 
-DB = "licenses.db"
-POLAR_WEBHOOK_SECRET = os.getenv("POLAR_WEBHOOK_SECRET", "")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASS", "")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-PRICE_TO_TIER = {
-    "9":  "pro",
-    "9.00": "pro",
-    "19": "max",
-    "19.00": "max",
+DB = "licenses.db"
+
+# USDC on Base
+USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+WALLET = os.getenv("WALLET_ADDRESS", "0x8069408a17B77895cb7Cd0B0D804aB46f59Bc4c3")
+BASE_RPC = "https://mainnet.base.org"
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+TIER_AMOUNTS = {
+    "pro": 9_000_000,   # $9 USDC (6 decimals)
+    "max": 20_000_000,  # $20 USDC (6 decimals)
 }
+
 
 def init_db():
     with sqlite3.connect(DB) as conn:
@@ -40,54 +47,96 @@ def init_db():
             """
         )
 
+
 @app.on_event("startup")
 def startup():
     init_db()
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-@app.post("/webhook/polar")
-async def polar_webhook(request: Request, x_polar_signature: str = Header(None)):
-    body = await request.body()
 
-    if POLAR_WEBHOOK_SECRET:
-        expected = hmac.new(
-            POLAR_WEBHOOK_SECRET.encode(), body, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(f"sha256={expected}", x_polar_signature or ""):
-            raise HTTPException(status_code=401, detail="Invalid signature")
+# ── On-chain verification ─────────────────────────────────────────────────────
 
-    payload = await request.json()
-    event_type = payload.get("type", "")
-    if event_type not in ("order.completed", "subscription.active"):
-        return {"status": "ignored"}
+def _rpc(method: str, params: list):
+    resp = http.post(BASE_RPC, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}, timeout=10)
+    resp.raise_for_status()
+    result = resp.json()
+    if "error" in result:
+        raise ValueError(result["error"]["message"])
+    return result["result"]
 
-    data = payload.get("data", {})
-    email = (data.get("customer") or {}).get("email") or data.get("email")
-    order_id = str(data.get("id", ""))
 
-    amount = str(data.get("amount", data.get("total_amount", "9"))).replace(".0", "")
-    tier = PRICE_TO_TIER.get(amount, "pro")
+def _verify_usdc_transfer(tx_hash: str, tier: str) -> bool:
+    try:
+        receipt = _rpc("eth_getTransactionReceipt", [tx_hash])
+        if not receipt or receipt.get("status") != "0x1":
+            return False
 
-    if not email:
-        raise HTTPException(status_code=400, detail="No customer email in webhook payload")
+        expected_amount = TIER_AMOUNTS[tier]
+        wallet_padded = "0x000000000000000000000000" + WALLET[2:].lower()
+
+        for log in receipt.get("logs", []):
+            if log.get("address", "").lower() != USDC_CONTRACT.lower():
+                continue
+            topics = log.get("topics", [])
+            if len(topics) < 3:
+                continue
+            if topics[0].lower() != TRANSFER_TOPIC.lower():
+                continue
+            if topics[2].lower() != wallet_padded.lower():
+                continue
+            amount = int(log.get("data", "0x0"), 16)
+            if amount >= expected_amount:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+# ── Crypto purchase endpoint ──────────────────────────────────────────────────
+
+@app.post("/issue-crypto")
+async def issue_crypto(request: Request):
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    tier = (body.get("tier") or "pro").strip().lower()
+    tx_hash = (body.get("tx_hash") or "").strip()
+
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+    if tier not in ("pro", "max"):
+        raise HTTPException(status_code=400, detail="tier must be 'pro' or 'max'")
+    if not tx_hash.startswith("0x") or len(tx_hash) < 60:
+        raise HTTPException(status_code=400, detail="Invalid tx hash format")
+
+    # Check this tx hasn't already been used
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute("SELECT id FROM licenses WHERE order_id = ?", (tx_hash,)).fetchone()
+    if row:
+        raise HTTPException(status_code=409, detail="This transaction has already been used to issue a key")
+
+    if not _verify_usdc_transfer(tx_hash, tier):
+        raise HTTPException(
+            status_code=402,
+            detail=f"Could not verify a ${TIER_AMOUNTS[tier] // 1_000_000} USDC transfer to the payment address. "
+                   "Make sure you're on Base network and the transaction is confirmed.",
+        )
 
     token = create_license_jwt(email, tier=tier)
 
     with sqlite3.connect(DB) as conn:
-        try:
-            conn.execute(
-                "INSERT INTO licenses (email, order_id, tier, token, issued_at) VALUES (?,?,?,?,?)",
-                (email, order_id, tier, token, datetime.utcnow().isoformat()),
-            )
-        except sqlite3.IntegrityError:
-            pass  # duplicate order
+        conn.execute(
+            "INSERT INTO licenses (email, order_id, tier, token, issued_at) VALUES (?,?,?,?,?)",
+            (email, tx_hash, tier, token, datetime.utcnow().isoformat()),
+        )
 
-    _send_license_email(email, token, tier)
-    return {"status": "ok"}
+    return {"token": token, "email": email, "tier": tier}
 
+
+# ── Validate endpoint (used by the Streamlit app) ────────────────────────────
 
 @app.post("/validate")
 async def validate_token(request: Request):
@@ -97,35 +146,3 @@ async def validate_token(request: Request):
     if not claims:
         raise HTTPException(status_code=401, detail="Invalid or expired license key")
     return {"valid": True, "email": claims["sub"], "tier": claims["tier"], "features": claims["features"]}
-
-
-def _send_license_email(to_email: str, token: str, tier: str = "pro"):
-    tier_label = "Max (Lifetime)" if tier == "max" else "Pro (1 Year)"
-    if not SMTP_USER:
-        print(f"[LICENSE] {tier_label} key issued for {to_email}:\n{token}")
-        return
-
-    msg = EmailMessage()
-    msg["Subject"] = f"Your GRID {tier_label} License Key"
-    msg["From"] = SMTP_USER
-    msg["To"] = to_email
-    msg.set_content(
-        f"""\
-Thank you for purchasing GRID {tier_label}!
-
-Your license key:
-
-{token}
-
-Paste this into the "Pro Features" page in the app to activate.
-
-{"Lifetime access — this key never expires." if tier == "max" else "Valid for 1 year from today."}
-
-Questions? Reply to this email.
-"""
-    )
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls()
-        s.login(SMTP_USER, SMTP_PASS)
-        s.send_message(msg)
