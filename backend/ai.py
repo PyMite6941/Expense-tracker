@@ -60,6 +60,63 @@ def suggest_category(merchant: str, amount: float, categories: list = None) -> s
     return 'Other'
 
 
+def recommend_budgets(expense_history: list, existing_budgets: list) -> dict:
+    """Suggest monthly budget limits per category based on 3-month spend history."""
+    from collections import defaultdict
+    from datetime import date
+
+    today = date.today()
+    three_months_ago = f'{today.year}-{today.month - 2:02d}' if today.month > 2 else (
+        f'{today.year - 1}-{today.month + 10:02d}'
+    )
+
+    recent = [e for e in expense_history if e.get('date', '') >= three_months_ago]
+    totals: dict = defaultdict(float)
+    counts: dict = defaultdict(int)
+    for e in recent:
+        cat = e.get('tags', 'Other')
+        totals[cat] += e.get('price', 0.0)
+        counts[cat] += 1
+
+    monthly_avgs = {cat: round(totals[cat] / 3, 2) for cat in totals}
+    existing = {b['category'] for b in existing_budgets}
+
+    summary_lines = '\n'.join(
+        f'- {cat}: avg {avg:.2f}/month over last 3 months'
+        for cat, avg in monthly_avgs.items()
+    )
+    existing_str = ', '.join(existing) if existing else 'none'
+
+    messages = [
+        {
+            'role': 'system',
+            'content': (
+                'You are a personal finance advisor. Based on the user\'s 3-month average spending '
+                'per category, suggest realistic monthly budget limits. '
+                'Respond ONLY with a JSON object mapping category names to suggested budget amounts (numbers). '
+                'Example: {"Food": 400, "Transport": 150}. No explanation.'
+            ),
+        },
+        {
+            'role': 'user',
+            'content': (
+                f'Spending averages:\n{summary_lines}\n\n'
+                f'Already has budgets for: {existing_str}\n'
+                'Suggest budgets for all categories shown, adjusting existing ones if appropriate.'
+            ),
+        },
+    ]
+    import json as _json
+    raw = _chat(messages, max_tokens=200, temperature=0.2)
+    try:
+        suggestions = _json.loads(raw)
+        if isinstance(suggestions, dict):
+            return {'success': True, 'suggestions': {k: float(v) for k, v in suggestions.items()}}
+    except (_json.JSONDecodeError, ValueError):
+        pass
+    return {'success': False, 'message': 'Could not parse AI response', 'raw': raw}
+
+
 def answer_query(question: str, financial_data: dict) -> str:
     summary = {
         'expenses': financial_data.get('expenses', [])[-100:],

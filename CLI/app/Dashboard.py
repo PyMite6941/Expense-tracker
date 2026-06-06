@@ -117,6 +117,88 @@ with tab_dashboard:
 
     st.divider()
 
+    # ── Financial health score ───────────────────────────────────────────────
+    st.subheader('Financial Health Score')
+    try:
+        from backend.analytics import financial_health_score as _fhs
+        _fhs_data = {
+            'expenses': st.session_state.expenses,
+            'income': st.session_state.income,
+            'budget': st.session_state.budget,
+            'subscriptions': st.session_state.subscriptions,
+            'goals': st.session_state.goals,
+        }
+        _hs = _fhs(_fhs_data)
+        if _hs['success']:
+            _hs_col1, _hs_col2 = st.columns([1, 3])
+            with _hs_col1:
+                _grade_colors = {'A': '🟢', 'B': '🟡', 'C': '🟠', 'D': '🔴', 'F': '🔴'}
+                st.metric('Score', f"{_hs['score']} / 100")
+                st.markdown(f"**Grade: {_grade_colors.get(_hs['grade'], '')} {_hs['grade']}**")
+            with _hs_col2:
+                _p = _hs['pillars']
+                _p_cols = st.columns(4)
+                _p_cols[0].metric('Savings Rate', f"{_p['savings_rate']:.0f}/100")
+                _p_cols[1].metric('Budget Adherence', f"{_p['budget_adherence']:.0f}/100")
+                _p_cols[2].metric('Subscription Burden', f"{_p['subscription_burden']:.0f}/100")
+                _p_cols[3].metric('Goal Consistency', f"{_p['goal_consistency']:.0f}/100")
+    except Exception as _e:
+        st.info(f'Health score unavailable: {_e}')
+
+    st.divider()
+
+    # ── Subscription renewal alerts ──────────────────────────────────────────
+    st.subheader('Upcoming Renewals')
+    try:
+        from backend.analytics import upcoming_renewals as _upcoming_renewals
+        _ur = _upcoming_renewals(st.session_state.subscriptions, days_ahead=30)
+        if _ur['upcoming']:
+            st.caption(f"{_ur['count']} subscription(s) renewing in the next 30 days:")
+            for _sub in _ur['upcoming']:
+                _days = _sub['days_until']
+                _label = 'today' if _days == 0 else f'in {_days} day{"s" if _days != 1 else ""}'
+                st.warning(
+                    f"**{_sub['name']}** — {float(_sub['price']):.2f} {_sub.get('currency','').upper()} "
+                    f"renews {_label} ({_sub['next_billing_date']})"
+                )
+        else:
+            st.success('No renewals due in the next 30 days.')
+    except Exception as _e:
+        st.info(f'Renewal alerts unavailable: {_e}')
+
+    st.divider()
+
+    # ── Goal progress ────────────────────────────────────────────────────────
+    st.subheader('Goal Progress')
+    try:
+        from backend.analytics import goal_progress as _goal_progress
+        _gp = _goal_progress(st.session_state.goals)
+        if _gp['goals']:
+            for _g in _gp['goals']:
+                st.markdown(f"**{_g['name']}** — {_g['saved']:,.2f} / {_g['target']:,.2f} {_g['currency']} · ETA: {_g['eta']}")
+                st.progress(min(1.0, _g['percent'] / 100), text=f"{_g['percent']:.1f}%")
+        else:
+            st.info('No goals found. Add a goal to track progress.')
+    except Exception as _e:
+        st.info(f'Goal progress unavailable: {_e}')
+
+    st.divider()
+
+    # ── Duplicate cleanup ────────────────────────────────────────────────────
+    st.subheader('Data Cleanup')
+    _dup_cols = st.columns(4)
+    for _di, _dup_list in enumerate(['expenses', 'income', 'subscriptions', 'goals']):
+        if _dup_cols[_di].button(f'Remove duplicate {_dup_list}', key=f'dedup_{_dup_list}'):
+            _dup_result = st.session_state.tracker.check_for_duplicates(_dup_list)
+            if _dup_result['success']:
+                st.success(_dup_result['message'])
+                sync_data()
+                st.rerun()
+            else:
+                st.info(_dup_result['message'])
+
+    st.divider()
+
     # ── Natural language query ───────────────────────────────────────────────
     st.subheader('Ask About Your Finances')
     try:
@@ -307,13 +389,44 @@ with tab_add:
                     st.error(results['message'])
 
     elif choice == 'Budget':
+        try:
+            from backend.ai import is_configured as _ai_ok_bud, recommend_budgets as _recommend_budgets
+            if _ai_ok_bud():
+                with st.expander('Get AI Budget Recommendations', expanded=False):
+                    if st.button('Analyse my spending and suggest budgets', key='ai_bud_btn'):
+                        with st.spinner('Analysing …'):
+                            try:
+                                _bud_rec = _recommend_budgets(st.session_state.expenses, st.session_state.budget)
+                                if _bud_rec['success']:
+                                    st.session_state['ai_budget_suggestions'] = _bud_rec['suggestions']
+                                else:
+                                    st.error(_bud_rec.get('message', 'Recommendation failed'))
+                            except Exception as _exc:
+                                st.error(f'Recommendation failed: {_exc}')
+                    if st.session_state.get('ai_budget_suggestions'):
+                        st.caption('Suggested monthly limits (click a category below to pre-fill the form):')
+                        for _bcat, _bamt in st.session_state['ai_budget_suggestions'].items():
+                            if st.button(f'{_bcat}: {_bamt:.2f}', key=f'ai_bud_pick_{_bcat}'):
+                                st.session_state['ai_bud_prefill_cat'] = _bcat
+                                st.session_state['ai_bud_prefill_amt'] = _bamt
+                                st.rerun()
+        except Exception:
+            pass
+
+        _bud_cat_opts = ['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other']
+        _ai_bud_cat = st.session_state.get('ai_bud_prefill_cat', None)
+        _ai_bud_cat_idx = _bud_cat_opts.index(_ai_bud_cat) if _ai_bud_cat in _bud_cat_opts else 0
+        _ai_bud_amt = st.session_state.get('ai_bud_prefill_amt', 0.0)
+
         with st.form('add_budget_form'):
-            budget_amount = st.number_input('Budget Amount', min_value=0.0, step=0.01, key='add_bud_amount')
-            budget_category = st.selectbox('Budget Category', options=['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other'], key='add_bud_category')
+            budget_amount = st.number_input('Budget Amount', min_value=0.0, step=0.01, value=_ai_bud_amt, key='add_bud_amount')
+            budget_category = st.selectbox('Budget Category', options=_bud_cat_opts, index=_ai_bud_cat_idx, key='add_bud_category')
             budget_currency = st.selectbox('Budget Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'], key='add_bud_currency')
             if st.form_submit_button('Add Budget'):
                 results = st.session_state.tracker.create_budget(budget_category, budget_amount, budget_currency)
                 if results['success']:
+                    for _k in ('ai_bud_prefill_cat', 'ai_bud_prefill_amt', 'ai_budget_suggestions'):
+                        st.session_state.pop(_k, None)
                     st.success(results['message'])
                     sync_data()
                     st.rerun()
@@ -488,6 +601,51 @@ with tab_edit:
 # ── View Expenses ────────────────────────────────────────────────────────────
 with tab_view_expenses:
     st.subheader('View Expenses')
+
+    # ── Spending charts ──────────────────────────────────────────────────────
+    if st.session_state.expenses:
+        try:
+            import matplotlib.pyplot as _plt
+            from backend.analytics import spending_by_category as _sbc, monthly_totals as _mt
+
+            with st.expander('Spending Insights', expanded=False):
+                _chart_col1, _chart_col2 = st.columns(2)
+
+                # Bar chart: category breakdown this month
+                with _chart_col1:
+                    _sbc_result = _sbc(st.session_state.expenses, month=st.session_state.current_month)
+                    _cats = list(_sbc_result['by_category'].keys())
+                    _vals = list(_sbc_result['by_category'].values())
+                    if _cats:
+                        _fig1, _ax1 = _plt.subplots(figsize=(4, 3))
+                        _ax1.barh(_cats, _vals, color='#4F81BD')
+                        _ax1.set_xlabel('Amount (USD)')
+                        _ax1.set_title(f'Spending by Category — {st.session_state.current_month}')
+                        _plt.tight_layout()
+                        st.pyplot(_fig1)
+                        _plt.close(_fig1)
+                    else:
+                        st.info('No expenses this month.')
+
+                # Line chart: monthly totals over time
+                with _chart_col2:
+                    _mt_result = _mt(st.session_state.expenses)
+                    _months = list(_mt_result['monthly'].keys())
+                    _month_vals = list(_mt_result['monthly'].values())
+                    if len(_months) >= 2:
+                        _fig2, _ax2 = _plt.subplots(figsize=(4, 3))
+                        _ax2.plot(_months, _month_vals, marker='o', color='#4F81BD')
+                        _ax2.set_ylabel('Total (USD)')
+                        _ax2.set_title('Monthly Spending Trend')
+                        _ax2.tick_params(axis='x', rotation=45)
+                        _plt.tight_layout()
+                        st.pyplot(_fig2)
+                        _plt.close(_fig2)
+                    else:
+                        st.info('Need at least 2 months of data for a trend chart.')
+        except Exception as _chart_err:
+            st.info(f'Charts unavailable: {_chart_err}')
+
     search = st.text_input('Search expenses ...', '', key='view_exp_search')
     if search:
         expenses = [e for e in st.session_state.expenses if search.lower() in e['tags'].lower() or search.lower() in (e['notes'] or '').lower()]

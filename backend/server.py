@@ -2,8 +2,12 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel
 from typing import Optional
 from ocr import parse_receipt
-from analytics import forecast_spending, detect_anomalies, tax_summary
-from ai import answer_query, is_configured as ai_configured
+from analytics import (
+    forecast_spending, detect_anomalies, tax_summary,
+    financial_health_score, upcoming_renewals, goal_progress,
+    spending_by_category, monthly_totals,
+)
+from ai import answer_query, recommend_budgets, is_configured as ai_configured
 
 app = FastAPI()
 
@@ -32,6 +36,30 @@ class TaxSummaryRequest(BaseModel):
 class QueryRequest(BaseModel):
     question: str
     data: dict
+
+
+class HealthScoreRequest(BaseModel):
+    data: dict
+    base_currency: str = 'USD'
+
+
+class RenewalsRequest(BaseModel):
+    subscriptions: list
+    days_ahead: int = 30
+
+
+class GoalProgressRequest(BaseModel):
+    goals: list
+
+
+class SpendingRequest(BaseModel):
+    expenses: list
+    month: Optional[str] = None
+
+
+class BudgetRecommendRequest(BaseModel):
+    expenses: list
+    existing_budgets: list = []
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -86,5 +114,40 @@ def query(req: QueryRequest):
     try:
         answer = answer_query(req.question, req.data)
         return {'answer': answer}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/health-score')
+def health_score(req: HealthScoreRequest):
+    return financial_health_score(req.data, base_currency=req.base_currency)
+
+
+@app.post('/upcoming-renewals')
+def renewals(req: RenewalsRequest):
+    return upcoming_renewals(req.subscriptions, days_ahead=req.days_ahead)
+
+
+@app.post('/goal-progress')
+def goals(req: GoalProgressRequest):
+    return goal_progress(req.goals)
+
+
+@app.post('/spending-by-category')
+def spending(req: SpendingRequest):
+    return spending_by_category(req.expenses, month=req.month)
+
+
+@app.post('/monthly-totals')
+def totals(req: SpendingRequest):
+    return monthly_totals(req.expenses)
+
+
+@app.post('/recommend-budgets')
+def budget_recommendations(req: BudgetRecommendRequest):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        return recommend_budgets(req.expenses, req.existing_budgets)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))

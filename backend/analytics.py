@@ -1,6 +1,6 @@
 import statistics
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 
 
@@ -175,4 +175,209 @@ def net_worth_snapshot(
         'goal_targets_total': round(goal_targets, 2),
         'goal_contributions_to_date': round(goal_saved, 2),
         'estimated_net_worth': round(net_cash_flow - monthly_sub_burden * 12, 2),
+    }
+
+
+def financial_health_score(data: dict, base_currency: str = 'USD') -> dict:
+    """Composite 0-100 financial health score with per-pillar breakdown."""
+    expenses = data.get('expenses', [])
+    income = data.get('income', [])
+    budget = data.get('budget', [])
+    subscriptions = data.get('subscriptions', [])
+    goals = data.get('goals', [])
+
+    today = date.today()
+    current_month = today.strftime('%Y-%m')
+
+    month_income = sum(i['amount'] for i in income if i.get('date', '').startswith(current_month))
+    month_expenses = sum(e['price'] for e in expenses if e.get('date', '').startswith(current_month))
+
+    # Pillar 1: savings rate (target >= 20%)
+    if month_income > 0:
+        savings_rate = (month_income - month_expenses) / month_income
+        savings_score = min(100, max(0, savings_rate / 0.20 * 100))
+    else:
+        savings_score = 0.0
+
+    # Pillar 2: budget adherence (% of budgets not exceeded)
+    if budget:
+        budget_totals: dict = defaultdict(float)
+        for e in expenses:
+            if e.get('date', '').startswith(current_month):
+                budget_totals[e.get('tags', '')] += e['price']
+        within = sum(1 for b in budget if budget_totals.get(b['category'], 0) <= float(b['amount']))
+        adherence_score = within / len(budget) * 100
+    else:
+        adherence_score = 100.0
+
+    # Pillar 3: subscription burden (target < 10% of monthly income)
+    monthly_subs = sum(float(s['price']) for s in subscriptions)
+    if month_income > 0:
+        sub_ratio = monthly_subs / month_income
+        sub_score = min(100, max(0, (1 - sub_ratio / 0.10) * 100))
+    else:
+        sub_score = 100.0 if not subscriptions else 0.0
+
+    # Pillar 4: goal consistency (all goals making contributions this month)
+    if goals:
+        on_track = 0
+        for g in goals:
+            try:
+                start = datetime.strptime(g['startDate'], '%Y-%m-%d').date()
+                if start <= today and g.get('monthContribution', 0) > 0:
+                    on_track += 1
+            except (ValueError, TypeError, KeyError):
+                pass
+        active_goals = [g for g in goals if g.get('monthContribution', 0) > 0]
+        goal_score = (on_track / len(active_goals) * 100) if active_goals else 100.0
+    else:
+        goal_score = 100.0
+
+    weights = {'savings': 0.35, 'budget': 0.30, 'subscriptions': 0.20, 'goals': 0.15}
+    composite = (
+        savings_score * weights['savings']
+        + adherence_score * weights['budget']
+        + sub_score * weights['subscriptions']
+        + goal_score * weights['goals']
+    )
+
+    def grade(s: float) -> str:
+        if s >= 85: return 'A'
+        if s >= 70: return 'B'
+        if s >= 55: return 'C'
+        if s >= 40: return 'D'
+        return 'F'
+
+    return {
+        'success': True,
+        'score': round(composite, 1),
+        'grade': grade(composite),
+        'pillars': {
+            'savings_rate': round(savings_score, 1),
+            'budget_adherence': round(adherence_score, 1),
+            'subscription_burden': round(sub_score, 1),
+            'goal_consistency': round(goal_score, 1),
+        },
+        'details': {
+            'monthly_income': round(month_income, 2),
+            'monthly_expenses': round(month_expenses, 2),
+            'monthly_subscriptions': round(monthly_subs, 2),
+        },
+    }
+
+
+def upcoming_renewals(subscriptions: list, days_ahead: int = 30) -> dict:
+    """Return subscriptions whose next monthly billing falls within days_ahead days."""
+    today = date.today()
+    cutoff = today + timedelta(days=days_ahead)
+    upcoming = []
+
+    for s in subscriptions:
+        try:
+            start = datetime.strptime(s['startDate'], '%Y-%m-%d').date()
+        except (ValueError, TypeError, KeyError):
+            continue
+
+        # Find the next billing date on or after today
+        billing_day = start.day
+        candidate = today.replace(day=1)
+        # Walk month by month until we find next billing on or after today
+        for _ in range(3):
+            try:
+                import calendar
+                last_day = calendar.monthrange(candidate.year, candidate.month)[1]
+                day = min(billing_day, last_day)
+                billing = candidate.replace(day=day)
+                if billing >= today:
+                    break
+                # Advance one month
+                if candidate.month == 12:
+                    candidate = candidate.replace(year=candidate.year + 1, month=1)
+                else:
+                    candidate = candidate.replace(month=candidate.month + 1)
+            except ValueError:
+                break
+
+        if today <= billing <= cutoff:
+            days_until = (billing - today).days
+            upcoming.append({
+                **s,
+                'next_billing_date': billing.isoformat(),
+                'days_until': days_until,
+            })
+
+    upcoming.sort(key=lambda x: x['days_until'])
+    return {'success': True, 'upcoming': upcoming, 'count': len(upcoming)}
+
+
+def goal_progress(goals: list) -> dict:
+    """Return progress %, amount saved so far, and estimated completion date per goal."""
+    today = date.today()
+    results = []
+
+    for g in goals:
+        try:
+            target = float(g.get('amount', 0))
+            contribution = float(g.get('monthContribution', 0))
+            start = datetime.strptime(g['startDate'], '%Y-%m-%d').date()
+        except (ValueError, TypeError, KeyError):
+            continue
+
+        months_elapsed = max(0, (today.year - start.year) * 12 + (today.month - start.month))
+        saved = contribution * months_elapsed
+        pct = min(100.0, (saved / target * 100)) if target > 0 else 0.0
+
+        if contribution > 0 and saved < target:
+            months_remaining = (target - saved) / contribution
+            import math
+            months_remaining = math.ceil(months_remaining)
+            completion = today
+            for _ in range(months_remaining):
+                if completion.month == 12:
+                    completion = completion.replace(year=completion.year + 1, month=1)
+                else:
+                    completion = completion.replace(month=completion.month + 1)
+            eta = completion.isoformat()
+        elif saved >= target:
+            eta = 'Completed'
+        else:
+            eta = 'No contribution set'
+
+        results.append({
+            'name': g.get('name', ''),
+            'target': round(target, 2),
+            'saved': round(saved, 2),
+            'remaining': round(max(0.0, target - saved), 2),
+            'percent': round(pct, 1),
+            'eta': eta,
+            'currency': g.get('currency', 'USD'),
+        })
+
+    return {'success': True, 'goals': results}
+
+
+def spending_by_category(expenses: list, month: Optional[str] = None) -> dict:
+    """Sum expenses by category, optionally filtered to a YYYY-MM month."""
+    totals: dict = defaultdict(float)
+    for e in expenses:
+        if month and not e.get('date', '').startswith(month):
+            continue
+        totals[e.get('tags', 'Other')] += e.get('price', 0.0)
+    return {
+        'success': True,
+        'by_category': {k: round(v, 2) for k, v in sorted(totals.items(), key=lambda x: -x[1])},
+        'month': month,
+    }
+
+
+def monthly_totals(expenses: list) -> dict:
+    """Sum all expenses per calendar month, sorted chronologically."""
+    totals: dict = defaultdict(float)
+    for e in expenses:
+        m = e.get('date', '')[:7]
+        if m:
+            totals[m] += e.get('price', 0.0)
+    return {
+        'success': True,
+        'monthly': {k: round(v, 2) for k, v in sorted(totals.items())},
     }

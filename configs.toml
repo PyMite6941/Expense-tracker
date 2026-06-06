@@ -1,14 +1,8 @@
 [app]
+name = "Expense Tracker"
+version = "1.2"
 data_file = "data.json"
 default_currency = "USD"
-
-[ai]
-provider = "groq"          # groq | openrouter
-api_key = ""               # or set via AI_API_KEY env var
-model = ""                 # leave blank to use provider default
-
-[ocr]
-credentials_file = ""      # path to Google credentials JSON, or set GOOGLE_APPLICATION_CREDENTIALS
 
 [server]
 host = "0.0.0.0"
@@ -16,3 +10,53 @@ port = 8000
 
 [streamlit]
 port = 8501
+
+[ai]
+# Provider: "groq" or "openrouter" — add more in backend/ai.py _PROVIDERS dict
+# Override at runtime with AI_PROVIDER env var
+provider = "groq"
+
+# Leave blank to use the provider default:
+#   groq       -> llama-3.1-8b-instant
+#   openrouter -> meta-llama/llama-3.1-8b-instruct:free
+# Override at runtime with AI_MODEL env var
+model = ""
+
+# Do NOT put your key here — set the AI_API_KEY environment variable instead
+api_key = ""
+
+[ocr]
+# Set GOOGLE_APPLICATION_CREDENTIALS env var to the path of your service-account JSON
+# e.g. export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
+credentials_file = ""
+max_upload_mb = 10
+
+[analytics]
+base_currency = "USD"
+anomaly_z_threshold = 2.5
+upcoming_renewals_days = 30
+
+[analytics.tax]
+# Categories treated as potentially deductible in the tax summary
+deductible_categories = ["Bills", "Utilities", "Other"]
+
+[export]
+pdf_output_dir = "."
+csv_output_dir = "."
+
+[features]
+# Toggle any feature off by setting it to false
+net_worth_snapshot   = true
+spending_forecast    = true
+anomaly_detection    = true
+spending_charts      = true
+duplicate_cleanup    = true
+ai_categorization    = true
+ai_budget_recommend  = true
+nl_query             = true
+financial_health     = true
+renewal_alerts       = true
+goal_progress        = true
+tax_summary          = true
+pdf_export           = true
+receipt_ocr          = true
