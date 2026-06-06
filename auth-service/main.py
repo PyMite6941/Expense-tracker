@@ -1,13 +1,14 @@
-import hashlib
-import hmac
 import os
 import sqlite3
 from datetime import datetime
 
 import requests as http
+import resend
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from jwt_utils import create_license_jwt, verify_license_jwt
+
+resend.api_key = os.getenv("RESEND_API_KEY", "")
 
 app = FastAPI(title="Expense Tracker License Service")
 
@@ -133,7 +134,27 @@ async def issue_crypto(request: Request):
             (email, tx_hash, tier, token, datetime.utcnow().isoformat()),
         )
 
+    _send_license_email(email, token, tier)
     return {"token": token, "email": email, "tier": tier}
+
+
+def _send_license_email(to_email: str, token: str, tier: str):
+    if not resend.api_key:
+        print(f"[LICENSE] {tier.upper()} key for {to_email}:\n{token}")
+        return
+    tier_label = "Max" if tier == "max" else "Pro"
+    resend.Emails.send({
+        "from": "GRID <licenses@resend.dev>",
+        "to": to_email,
+        "subject": f"Your GRID {tier_label} License Key",
+        "html": f"""
+<p>Thanks for subscribing to GRID {tier_label}!</p>
+<p><strong>Your 31-day license key:</strong></p>
+<pre style="background:#111;padding:16px;border-radius:8px;font-size:13px;word-break:break-all">{token}</pre>
+<p>Paste it into the <strong>Pro Features</strong> page in the Expense Tracker app to activate.</p>
+<p style="color:#888;font-size:12px">Key expires in 31 days. Renew by sending another payment and claiming again.</p>
+""",
+    })
 
 
 # ── Validate endpoint (used by the Streamlit app) ────────────────────────────
