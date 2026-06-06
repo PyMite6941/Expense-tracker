@@ -10,9 +10,20 @@ from pydantic import BaseModel
 # ── Shared LLMs ───────────────────────────────────────────────────────────────
 
 def _smart_llm():
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if openrouter_key:
+        return LLM(
+            model="openrouter/deepseek/deepseek-r1:free",
+            api_key=openrouter_key,
+            max_tokens=4096,
+            temperature=0.1,
+            max_retries=2,
+            timeout=60,
+        )
     return LLM(
-        model="openrouter/deepseek/deepseek-r1:free",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
+        model="groq/llama-3.3-70b-versatile",
+        api_key=groq_key,
         max_tokens=4096,
         temperature=0.1,
         max_retries=2,
@@ -20,9 +31,20 @@ def _smart_llm():
     )
 
 def _fast_llm():
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if openrouter_key:
+        return LLM(
+            model="openrouter/meta-llama/llama-3.1-8b-instruct:free",
+            api_key=openrouter_key,
+            max_tokens=2048,
+            temperature=0.3,
+            max_retries=2,
+            timeout=30,
+        )
     return LLM(
-        model="openrouter/meta-llama/llama-3.1-8b-instruct:free",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
+        model="groq/llama-3.1-8b-instant",
+        api_key=groq_key,
         max_tokens=2048,
         temperature=0.3,
         max_retries=2,
