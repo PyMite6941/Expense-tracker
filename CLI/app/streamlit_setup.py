@@ -51,6 +51,12 @@ def init_st():
     if 'recurring_income' not in st.session_state:
         results = st.session_state.tracker.view_recurring_income()
         st.session_state.recurring_income = results['data'] if results['success'] else []
+    if 'assets' not in st.session_state:
+        results = st.session_state.tracker.view_assets()
+        st.session_state.assets = results['data'] if results['success'] else []
+    if 'liabilities' not in st.session_state:
+        results = st.session_state.tracker.view_liabilities()
+        st.session_state.liabilities = results['data'] if results['success'] else []
     if 'selected_for_deletion' not in st.session_state:
         st.session_state.selected_for_deletion = []
     if 'current_month' not in st.session_state:
@@ -64,7 +70,7 @@ def init_st():
 
 # Refresh the data in the session state
 def sync_data():
-    key_to_reset = ['expenses','income','budget','subscriptions','goals','recurring_expenses','recurring_income']
+    key_to_reset = ['expenses','income','budget','subscriptions','goals','recurring_expenses','recurring_income','assets','liabilities']
     for key in key_to_reset:
         if key in st.session_state:
             del st.session_state[key]

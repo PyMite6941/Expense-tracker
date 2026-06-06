@@ -52,8 +52,9 @@ with col_activate:
             if resp.ok:
                 data = resp.json()
                 st.session_state['pro_token'] = token_input
-                st.session_state['pro_email'] = data['email']
-                st.session_state['pro_tier']  = data.get('tier', 'pro')
+                st.session_state['pro_email']    = data['email']
+                st.session_state['pro_tier']     = data.get('tier', 'pro')
+                st.session_state['pro_features'] = data.get('features', [])
                 st.success(f"License active — {data['email']} ({data.get('tier','pro').upper()})", icon='✅')
                 st.rerun()
             else:
@@ -65,7 +66,7 @@ with col_activate:
 
 with col_clear:
     if st.session_state.get('pro_token') and st.button('Remove license'):
-        for k in ('pro_token', 'pro_email', 'pro_tier'):
+        for k in ('pro_token', 'pro_email', 'pro_tier', 'pro_features'):
             st.session_state.pop(k, None)
         st.rerun()
 

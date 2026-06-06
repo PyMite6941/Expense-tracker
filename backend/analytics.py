@@ -144,6 +144,8 @@ def net_worth_snapshot(
     income = data.get('income', [])
     subscriptions = data.get('subscriptions', [])
     goals = data.get('goals', [])
+    assets = data.get('assets', [])
+    liabilities = data.get('liabilities', [])
 
     total_income = sum(to_base(i['amount'], i.get('currency', base_currency)) for i in income)
     total_expenses = sum(to_base(e['price'], e.get('currency', base_currency)) for e in expenses)
@@ -163,7 +165,25 @@ def net_worth_snapshot(
         except (ValueError, TypeError, KeyError):
             pass
 
+    # Assets by type
+    asset_by_type: dict = defaultdict(float)
+    for a in assets:
+        asset_by_type[a.get('type', 'other')] += to_base(float(a.get('value', 0)), a.get('currency', base_currency))
+    total_assets = sum(asset_by_type.values())
+
+    # Liabilities by type
+    liability_by_type: dict = defaultdict(float)
+    for l in liabilities:
+        liability_by_type[l.get('type', 'other')] += to_base(float(l.get('balance', 0)), l.get('currency', base_currency))
+    total_liabilities = sum(liability_by_type.values())
+
     net_cash_flow = total_income - total_expenses
+
+    # True net worth = assets - liabilities; fall back to cash-flow estimate if neither is recorded
+    if assets or liabilities:
+        net_worth = total_assets - total_liabilities
+    else:
+        net_worth = net_cash_flow - monthly_sub_burden * 12
 
     return {
         'success': True,
@@ -174,5 +194,9 @@ def net_worth_snapshot(
         'monthly_subscription_burden': round(monthly_sub_burden, 2),
         'goal_targets_total': round(goal_targets, 2),
         'goal_contributions_to_date': round(goal_saved, 2),
-        'estimated_net_worth': round(net_cash_flow - monthly_sub_burden * 12, 2),
+        'total_assets': round(total_assets, 2),
+        'total_liabilities': round(total_liabilities, 2),
+        'assets_by_type': {k: round(v, 2) for k, v in asset_by_type.items()},
+        'liabilities_by_type': {k: round(v, 2) for k, v in liability_by_type.items()},
+        'estimated_net_worth': round(net_worth, 2),
     }

@@ -17,8 +17,8 @@ def _backend_post(endpoint: str, payload: dict):
 
 st.title('Web-based Expense and Income Tracking')
 
-tab_dashboard, tab_add, tab_delete, tab_edit, tab_view_expenses, tab_view_income, tab_view_subscriptions = st.tabs([
-    'Dashboard', 'Add', 'Delete', 'Edit', 'View Expenses', 'View Income', 'View Subscriptions'
+tab_dashboard, tab_add, tab_delete, tab_edit, tab_view_expenses, tab_view_income, tab_view_subscriptions, tab_net_worth = st.tabs([
+    'Dashboard', 'Add', 'Delete', 'Edit', 'View Expenses', 'View Income', 'View Subscriptions', 'Assets & Liabilities'
 ])
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
@@ -62,33 +62,43 @@ with tab_dashboard:
 
     st.divider()
 
-    # ── Net-worth snapshot ───────────────────────────────────────────────────
+    # ── Net-worth snapshot (Max only) ────────────────────────────────────────
     st.subheader('Net-Worth Snapshot')
-    try:
-        if USE_LOCAL_BACKEND:
-            from backend.analytics import net_worth_snapshot
-            _nw = net_worth_snapshot(
-                {'expenses': st.session_state.expenses, 'income': st.session_state.income,
-                 'subscriptions': st.session_state.subscriptions, 'goals': st.session_state.goals},
-                convert_fn=st.session_state.tracker.convert_currency,
-            )
-        else:
-            _resp = _backend_post('/net-worth', {
-                'expenses': st.session_state.expenses, 'income': st.session_state.income,
-                'subscriptions': st.session_state.subscriptions, 'goals': st.session_state.goals,
-            })
-            _nw = _resp.json() if _resp.ok else {'success': False}
-        if _nw.get('success'):
-            _nw_cols = st.columns(4)
-            _nw_cols[0].metric('Total Income', f"{_nw['total_income']:,.2f} {_nw['base_currency']}")
-            _nw_cols[1].metric('Total Expenses', f"{_nw['total_expenses']:,.2f} {_nw['base_currency']}")
-            _nw_cols[2].metric('Net Cash Flow', f"{_nw['net_cash_flow']:,.2f} {_nw['base_currency']}")
-            _nw_cols[3].metric('Est. Net Worth', f"{_nw['estimated_net_worth']:,.2f} {_nw['base_currency']}")
-            _nw_cols2 = st.columns(2)
-            _nw_cols2[0].metric('Monthly Subscription Burden', f"{_nw['monthly_subscription_burden']:,.2f} {_nw['base_currency']}")
-            _nw_cols2[1].metric('Goal Contributions to Date', f"{_nw['goal_contributions_to_date']:,.2f} {_nw['base_currency']}")
-    except Exception as _e:
-        st.info(f'Net-worth snapshot unavailable: {_e}')
+    _pro_features = st.session_state.get('pro_features', [])
+    if 'net_worth' not in _pro_features:
+        st.info('Net Worth tracking is a **Max** feature. Activate a Max license on the Pro Features page to unlock it.')
+    else:
+        try:
+            _nw_payload = {
+                'expenses': st.session_state.expenses,
+                'income': st.session_state.income,
+                'subscriptions': st.session_state.subscriptions,
+                'goals': st.session_state.goals,
+                'assets': st.session_state.get('assets', []),
+                'liabilities': st.session_state.get('liabilities', []),
+            }
+            if USE_LOCAL_BACKEND:
+                from backend.analytics import net_worth_snapshot
+                _nw = net_worth_snapshot(_nw_payload, convert_fn=st.session_state.tracker.convert_currency)
+            else:
+                _resp = _backend_post('/net-worth', _nw_payload)
+                _nw = _resp.json() if _resp.ok else {'success': False}
+            if _nw.get('success'):
+                _cur = _nw['base_currency']
+                _nw_cols = st.columns(4)
+                _nw_cols[0].metric('Total Assets',     f"{_nw['total_assets']:,.2f} {_cur}")
+                _nw_cols[1].metric('Total Liabilities', f"{_nw['total_liabilities']:,.2f} {_cur}")
+                _nw_cols[2].metric('Net Cash Flow',     f"{_nw['net_cash_flow']:,.2f} {_cur}")
+                _nw_cols[3].metric('Net Worth',         f"{_nw['estimated_net_worth']:,.2f} {_cur}")
+                _nw_cols2 = st.columns(2)
+                _nw_cols2[0].metric('Monthly Subscription Burden', f"{_nw['monthly_subscription_burden']:,.2f} {_cur}")
+                _nw_cols2[1].metric('Goal Contributions to Date',  f"{_nw['goal_contributions_to_date']:,.2f} {_cur}")
+                if _nw.get('assets_by_type'):
+                    st.caption('Assets: ' + ' · '.join(f"{k} {v:,.2f}" for k, v in _nw['assets_by_type'].items()))
+                if _nw.get('liabilities_by_type'):
+                    st.caption('Liabilities: ' + ' · '.join(f"{k} {v:,.2f}" for k, v in _nw['liabilities_by_type'].items()))
+        except Exception as _e:
+            st.info(f'Net-worth snapshot unavailable: {_e}')
 
     st.divider()
 
@@ -636,3 +646,77 @@ with tab_view_subscriptions:
     result = st.session_state.tracker.export_to_csv('subscriptions', 'subscriptions.csv')
     if result['success']:
         st.download_button(label='Export subscriptions to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='subscriptions.csv', mime='text/csv', key='sub_download')
+
+# ── Assets & Liabilities (Max only) ──────────────────────────────────────────
+with tab_net_worth:
+    if 'net_worth' not in st.session_state.get('pro_features', []):
+        st.info('Assets & Liabilities tracking is a **Max** feature. Activate a Max license on the Pro Features page.')
+        st.stop()
+    _CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'THB', 'INR', 'Other']
+
+    col_a, col_b = st.columns(2)
+
+    # ── Assets ────────────────────────────────────────────────────────────────
+    with col_a:
+        st.subheader('Assets')
+        assets = st.session_state.get('assets', [])
+        if assets:
+            for a in assets:
+                c1, c2, c3 = st.columns([3, 2, 1])
+                c1.write(f"**{a['name']}** · {a['type']}")
+                c2.write(f"{a['value']:,.2f} {a['currency'].upper()}")
+                if c3.button('✕', key=f'del_asset_{a["id"]}'):
+                    st.session_state.tracker.delete_asset(a['id'])
+                    sync_data()
+                    st.rerun()
+        else:
+            st.caption('No assets recorded yet.')
+
+        with st.form('add_asset_form', clear_on_submit=True):
+            st.write('Add Asset')
+            a_name  = st.text_input('Name (e.g. Savings Account, Crypto)')
+            a_type  = st.selectbox('Type', ['liquid', 'investment', 'real_estate', 'vehicle', 'other'])
+            a_val   = st.number_input('Current Value', min_value=0.0, step=0.01)
+            a_cur   = st.selectbox('Currency', _CURRENCIES, key='asset_cur')
+            a_notes = st.text_input('Notes (optional)')
+            if st.form_submit_button('Add Asset') and a_name and a_val > 0:
+                res = st.session_state.tracker.add_asset(a_name, a_type, a_val, a_cur, a_notes)
+                if res['success']:
+                    st.success(res['message'])
+                    sync_data()
+                    st.rerun()
+                else:
+                    st.error(res['message'])
+
+    # ── Liabilities ───────────────────────────────────────────────────────────
+    with col_b:
+        st.subheader('Liabilities')
+        liabilities = st.session_state.get('liabilities', [])
+        if liabilities:
+            for l in liabilities:
+                c1, c2, c3 = st.columns([3, 2, 1])
+                c1.write(f"**{l['name']}** · {l['type']}")
+                c2.write(f"{l['balance']:,.2f} {l['currency'].upper()}")
+                if c3.button('✕', key=f'del_liab_{l["id"]}'):
+                    st.session_state.tracker.delete_liability(l['id'])
+                    sync_data()
+                    st.rerun()
+        else:
+            st.caption('No liabilities recorded yet.')
+
+        with st.form('add_liability_form', clear_on_submit=True):
+            st.write('Add Liability')
+            l_name  = st.text_input('Name (e.g. Student Loan, Mortgage)')
+            l_type  = st.selectbox('Type', ['mortgage', 'student_loan', 'car_loan', 'credit_card', 'personal_loan', 'other'])
+            l_bal   = st.number_input('Outstanding Balance', min_value=0.0, step=0.01)
+            l_rate  = st.number_input('Interest Rate % (optional)', min_value=0.0, max_value=100.0, step=0.01)
+            l_cur   = st.selectbox('Currency', _CURRENCIES, key='liab_cur')
+            l_notes = st.text_input('Notes (optional)', key='liab_notes')
+            if st.form_submit_button('Add Liability') and l_name and l_bal > 0:
+                res = st.session_state.tracker.add_liability(l_name, l_type, l_bal, l_cur, l_rate / 100, l_notes)
+                if res['success']:
+                    st.success(res['message'])
+                    sync_data()
+                    st.rerun()
+                else:
+                    st.error(res['message'])

@@ -53,6 +53,8 @@ class NetWorthRequest(BaseModel):
     income: list
     subscriptions: list = []
     goals: list = []
+    assets: list = []
+    liabilities: list = []
 
 
 class QueryRequest(BaseModel):
@@ -85,7 +87,8 @@ async def parse(file: UploadFile):
 @app.post('/net-worth')
 def net_worth(req: NetWorthRequest):
     data = {'expenses': req.expenses, 'income': req.income,
-            'subscriptions': req.subscriptions, 'goals': req.goals}
+            'subscriptions': req.subscriptions, 'goals': req.goals,
+            'assets': req.assets, 'liabilities': req.liabilities}
     return net_worth_snapshot(data)
 
 

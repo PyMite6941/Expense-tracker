@@ -25,7 +25,7 @@ class ExpenseTracker():
                 data = json.load(file)
             # If not organized right then organize it right
             if not isinstance(data,dict):
-                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
+                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[],'assets':[],'liabilities':[]}
             # If not data list then create it
             else:
                 if 'expenses' not in data:
@@ -42,10 +42,14 @@ class ExpenseTracker():
                     data['recurring_expenses'] = []
                 if 'recurring_income' not in data:
                     data['recurring_income'] = []
+                if 'assets' not in data:
+                    data['assets'] = []
+                if 'liabilities' not in data:
+                    data['liabilities'] = []
             return {'success':True,'data':data}
         # If FileNotFound or JSONDecodeError then return empty list
         except (FileNotFoundError, json.JSONDecodeError):
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[]}
+            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[],'assets':[],'liabilities':[]}
             self.write_file(data)
             return {'success':True,'data':data}
     
@@ -796,6 +800,114 @@ class ExpenseTracker():
         except Exception as e:
             return {'success': False, 'message': f'Error detecting recurring expenses: {str(e)}'}
     
+    # ── Assets ────────────────────────────────────────────────────────────────
+
+    ASSET_TYPES = ['liquid', 'investment', 'real_estate', 'vehicle', 'other']
+    LIABILITY_TYPES = ['mortgage', 'student_loan', 'car_loan', 'credit_card', 'personal_loan', 'other']
+
+    def view_assets(self) -> Dict[str, Any]:
+        result = self.open_file()
+        return {'success': True, 'data': result['data'].get('assets', [])}
+
+    def add_asset(self, name: str, asset_type: str, value: float, currency: str = 'usd', notes: str = '') -> Dict[str, Any]:
+        result = self.open_file()
+        data = result['data']
+        asset_id = self.assign_id(data['assets'])
+        asset = {
+            'id': asset_id,
+            'name': name,
+            'type': asset_type.lower(),
+            'value': round(float(value), 2),
+            'currency': currency.lower(),
+            'notes': notes or '',
+        }
+        data['assets'].append(asset)
+        self.write_file(data)
+        return {'success': True, 'message': f'Asset "{name}" added successfully', 'data': asset}
+
+    def edit_asset(self, asset_id: int, name: Optional[str] = None, asset_type: Optional[str] = None,
+                   value: Optional[float] = None, currency: Optional[str] = None, notes: Optional[str] = None) -> Dict[str, Any]:
+        result = self.open_file()
+        data = result['data']
+        for asset in data['assets']:
+            if asset['id'] == asset_id:
+                if name is not None:
+                    asset['name'] = name
+                if asset_type is not None:
+                    asset['type'] = asset_type.lower()
+                if value is not None:
+                    asset['value'] = round(float(value), 2)
+                if currency is not None:
+                    asset['currency'] = currency.lower()
+                if notes is not None:
+                    asset['notes'] = notes
+                self.write_file(data)
+                return {'success': True, 'message': f'Asset {asset_id} updated'}
+        return {'success': False, 'message': f'Asset {asset_id} not found'}
+
+    def delete_asset(self, asset_id: int) -> Dict[str, Any]:
+        result = self.open_file()
+        data = result['data']
+        before = len(data['assets'])
+        data['assets'] = [a for a in data['assets'] if a['id'] != asset_id]
+        if len(data['assets']) == before:
+            return {'success': False, 'message': f'Asset {asset_id} not found'}
+        self.write_file(data)
+        return {'success': True, 'message': f'Asset {asset_id} deleted'}
+
+    # ── Liabilities ───────────────────────────────────────────────────────────
+
+    def view_liabilities(self) -> Dict[str, Any]:
+        result = self.open_file()
+        return {'success': True, 'data': result['data'].get('liabilities', [])}
+
+    def add_liability(self, name: str, liability_type: str, balance: float, currency: str = 'usd',
+                      interest_rate: float = 0.0, notes: str = '') -> Dict[str, Any]:
+        result = self.open_file()
+        data = result['data']
+        if 'liabilities' not in data:
+            data['liabilities'] = []
+        liability_id = self.assign_id(data['liabilities'])
+        liability = {
+            'id': liability_id,
+            'name': name,
+            'type': liability_type.lower(),
+            'balance': round(float(balance), 2),
+            'currency': currency.lower(),
+            'interest_rate': round(float(interest_rate), 4),
+            'notes': notes or '',
+        }
+        data['liabilities'].append(liability)
+        self.write_file(data)
+        return {'success': True, 'message': f'Liability "{name}" added', 'data': liability}
+
+    def edit_liability(self, liability_id: int, name: Optional[str] = None, liability_type: Optional[str] = None,
+                       balance: Optional[float] = None, currency: Optional[str] = None,
+                       interest_rate: Optional[float] = None, notes: Optional[str] = None) -> Dict[str, Any]:
+        result = self.open_file()
+        data = result['data']
+        for lib in data.get('liabilities', []):
+            if lib['id'] == liability_id:
+                if name is not None: lib['name'] = name
+                if liability_type is not None: lib['type'] = liability_type.lower()
+                if balance is not None: lib['balance'] = round(float(balance), 2)
+                if currency is not None: lib['currency'] = currency.lower()
+                if interest_rate is not None: lib['interest_rate'] = round(float(interest_rate), 4)
+                if notes is not None: lib['notes'] = notes
+                self.write_file(data)
+                return {'success': True, 'message': f'Liability {liability_id} updated'}
+        return {'success': False, 'message': f'Liability {liability_id} not found'}
+
+    def delete_liability(self, liability_id: int) -> Dict[str, Any]:
+        result = self.open_file()
+        data = result['data']
+        before = len(data.get('liabilities', []))
+        data['liabilities'] = [l for l in data.get('liabilities', []) if l['id'] != liability_id]
+        if len(data['liabilities']) == before:
+            return {'success': False, 'message': f'Liability {liability_id} not found'}
+        self.write_file(data)
+        return {'success': True, 'message': f'Liability {liability_id} deleted'}
+
     # Import from .csv file
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
         # Define the list to process

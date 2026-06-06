@@ -23,6 +23,7 @@ TIER_FEATURES = {
         "multi_project",
         "export_premium",
         "priority_support",
+        "net_worth",
     ],
 }
 
