@@ -36,17 +36,37 @@ def _check_jwt_secret():
         )
 
 
-def require_pro(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+def _decode(credentials: HTTPAuthorizationCredentials) -> dict:
     try:
-        claims = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[ALGORITHM])
+        return jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[ALGORITHM])
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired license key")
+
+
+def require_pro(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    claims = _decode(credentials)
     if "advanced_categorization" not in claims.get("features", []):
         raise HTTPException(status_code=403, detail="This feature requires a Pro license")
     return claims
 
 
+def require_max(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    claims = _decode(credentials)
+    if "net_worth" not in claims.get("features", []):
+        raise HTTPException(status_code=403, detail="This feature requires a Max license")
+    return claims
+
+
 # ── Request models ─────────────────────────────────────────────────────────────
+
+MAX_LIST = 10_000
+
+
+def _cap(lst: list, name: str = 'list') -> list:
+    if len(lst) > MAX_LIST:
+        raise HTTPException(status_code=400, detail=f'{name} exceeds {MAX_LIST} item limit')
+    return lst
+
 
 class ForecastRequest(BaseModel):
     expenses: list
@@ -156,7 +176,7 @@ async def parse(file: UploadFile):
 
 
 @app.post('/net-worth')
-def net_worth(req: NetWorthRequest):
+def net_worth(req: NetWorthRequest, _claims: dict = Depends(require_max)):
     data = {'expenses': req.expenses, 'income': req.income,
             'subscriptions': req.subscriptions, 'goals': req.goals,
             'assets': req.assets, 'liabilities': req.liabilities}
@@ -165,7 +185,7 @@ def net_worth(req: NetWorthRequest):
 
 @app.post('/forecast')
 def forecast(req: ForecastRequest):
-    result = forecast_spending(req.expenses, base_currency=req.base_currency)
+    result = forecast_spending(_cap(req.expenses, 'expenses'), base_currency=req.base_currency)
     if not result['success']:
         raise HTTPException(status_code=422, detail=result.get('message', 'Forecast failed'))
     return result
@@ -173,14 +193,14 @@ def forecast(req: ForecastRequest):
 
 @app.post('/detect-anomalies')
 def anomalies(req: AnomalyRequest):
-    return detect_anomalies(req.expenses, z_threshold=req.z_threshold)
+    return detect_anomalies(_cap(req.expenses, 'expenses'), z_threshold=req.z_threshold)
 
 
 @app.post('/tax-summary')
 def tax(req: TaxSummaryRequest):
     return tax_summary(
-        req.expenses,
-        req.income,
+        _cap(req.expenses, 'expenses'),
+        _cap(req.income, 'income'),
         req.year,
         deductible_categories=req.deductible_categories,
     )

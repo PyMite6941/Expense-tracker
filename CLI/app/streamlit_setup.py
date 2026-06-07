@@ -57,6 +57,18 @@ def init_st():
     if 'liabilities' not in st.session_state:
         results = st.session_state.tracker.view_liabilities()
         st.session_state.liabilities = results['data'] if results['success'] else []
+    # Re-derive pro_features from stored token so page refresh doesn't lose gating
+    if 'pro_features' not in st.session_state and st.session_state.get('pro_token'):
+        import requests as _req
+        try:
+            _r = _req.post(f'{AUTH_SERVICE_URL}/validate', json={'token': st.session_state['pro_token']}, timeout=5)
+            if _r.ok:
+                _d = _r.json()
+                st.session_state['pro_features'] = _d.get('features', [])
+                st.session_state['pro_tier']     = _d.get('tier', 'pro')
+                st.session_state['pro_email']    = _d.get('email', '')
+        except Exception:
+            pass
     if 'selected_for_deletion' not in st.session_state:
         st.session_state.selected_for_deletion = []
     if 'current_month' not in st.session_state:

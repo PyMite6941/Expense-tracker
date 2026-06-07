@@ -10,9 +10,11 @@ from jwt_utils import create_license_jwt, verify_license_jwt
 
 resend.api_key = os.getenv("RESEND_API_KEY", "")
 
+ISSUE_SECRET = os.getenv("ISSUE_SECRET", "")
+
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:8501,http://127.0.0.1:8501",
+    "http://localhost:8501,http://127.0.0.1:8501,https://grid-store.pages.dev",
 ).split(",")
 
 app = FastAPI(title="Expense Tracker License Service")
@@ -21,7 +23,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["POST", "GET"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-Issue-Secret"],
 )
 
 DB = os.getenv("LICENSE_DB", "licenses.db")
@@ -63,10 +65,12 @@ def health():
 @app.post("/issue")
 async def issue(request: Request):
     """
-    Issue a license key.  Call this from your store / payment webhook after
-    you have independently verified payment.  The store is responsible for
-    all payment verification — this service only mints and delivers JWT keys.
+    Issue a license key. Requires X-Issue-Secret header to prevent abuse.
+    Call this after independently verifying payment (e.g. from gen_code.py).
     """
+    if ISSUE_SECRET and request.headers.get("X-Issue-Secret") != ISSUE_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Issue-Secret header")
+
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
     tier = (body.get("tier") or "pro").strip().lower()

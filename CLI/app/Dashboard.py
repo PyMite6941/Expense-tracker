@@ -12,15 +12,16 @@ import requests as _requests
 init_st()
 
 
-def _backend_post(endpoint: str, payload: dict):
+def _backend_post(endpoint: str, payload: dict, token: str = None):
+    headers = {}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
     try:
         return _requests.post(
             f'{st.session_state.get("backend_url", BACKEND_URL)}{endpoint}',
-            json=payload, timeout=30,
+            json=payload, headers=headers, timeout=30,
         )
-    except _requests.exceptions.ConnectionError:
-        return None
-    except _requests.exceptions.Timeout:
+    except (_requests.exceptions.ConnectionError, _requests.exceptions.Timeout):
         return None
 
 st.title('Web-based Expense and Income Tracking')
@@ -89,7 +90,7 @@ with tab_dashboard:
                 from backend.analytics import net_worth_snapshot
                 _nw = net_worth_snapshot(_nw_payload, convert_fn=st.session_state.tracker.convert_currency)
             else:
-                _resp = _backend_post('/net-worth', _nw_payload)
+                _resp = _backend_post('/net-worth', _nw_payload, token=st.session_state.get('pro_token'))
                 _nw = (_resp.json() if _resp.ok else {'success': False}) if _resp is not None else {'success': False}
             if _nw.get('success'):
                 _cur = _nw['base_currency']
