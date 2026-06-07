@@ -170,7 +170,7 @@ with tab_dashboard:
     if not _nl_ai_ok and not USE_LOCAL_BACKEND:
         st.info('Set an AI_API_KEY to enable natural language queries about your finances.')
     else:
-        _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input')
+        _nl_question = st.text_input('Ask anything about your finances …', key='nl_query_input', max_chars=500)
         if st.button('Ask', key='nl_query_btn') and _nl_question.strip():
             with st.spinner('Thinking …'):
                 _nl_data = {

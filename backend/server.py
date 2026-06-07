@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from analytics import (
     budget_utilization, detect_anomalies, financial_health_score, forecast_spending,
@@ -95,7 +95,7 @@ class NetWorthRequest(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    question: str
+    question: str = Field(..., max_length=1000)
     data: dict
 
 

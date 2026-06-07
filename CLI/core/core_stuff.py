@@ -915,7 +915,12 @@ class ExpenseTracker():
         data = result['data']
         listToProcess = data[listName]
         df = pd.read_csv(filename)
+        # Drop any id column from CSV — we assign fresh IDs to avoid conflicts
+        df = df.drop(columns=['id'], errors='ignore')
         newData = df.to_dict('records')
+        max_id = max((item.get('id', 0) for item in listToProcess), default=0)
+        for i, record in enumerate(newData, start=1):
+            record['id'] = max_id + i
         listToProcess.extend(newData)
         data[listName] = listToProcess
         self.write_file(data)

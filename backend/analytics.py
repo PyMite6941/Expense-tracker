@@ -67,7 +67,9 @@ def detect_anomalies(expenses: list, z_threshold: float = 2.5) -> dict:
     for cat, items in by_category.items():
         if len(items) < 3:
             continue
-        prices = [i['price'] for i in items]
+        prices = [i['price'] for i in items if isinstance(i.get('price'), (int, float))]
+        if len(prices) < 3:
+            continue
         mean = sum(prices) / len(prices)
         try:
             std = statistics.stdev(prices)
@@ -168,13 +170,19 @@ def net_worth_snapshot(
     # Assets by type
     asset_by_type: dict = defaultdict(float)
     for a in assets:
-        asset_by_type[a.get('type', 'other')] += to_base(float(a.get('value', 0)), a.get('currency', base_currency))
+        try:
+            asset_by_type[a.get('type', 'other')] += to_base(float(a.get('value', 0) or 0), a.get('currency', base_currency))
+        except (ValueError, TypeError):
+            continue
     total_assets = sum(asset_by_type.values())
 
     # Liabilities by type
     liability_by_type: dict = defaultdict(float)
     for l in liabilities:
-        liability_by_type[l.get('type', 'other')] += to_base(float(l.get('balance', 0)), l.get('currency', base_currency))
+        try:
+            liability_by_type[l.get('type', 'other')] += to_base(float(l.get('balance', 0) or 0), l.get('currency', base_currency))
+        except (ValueError, TypeError):
+            continue
     total_liabilities = sum(liability_by_type.values())
 
     net_cash_flow = total_income - total_expenses

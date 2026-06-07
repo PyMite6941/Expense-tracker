@@ -96,10 +96,16 @@ async def issue(request: Request):
 
     token = create_license_jwt(email, tier=tier)
 
-    with sqlite3.connect(DB) as conn:
-        conn.execute(
-            "INSERT INTO licenses (email, order_id, tier, issued_at) VALUES (?,?,?,?)",
-            (email, order_id, tier, datetime.utcnow().isoformat()),
+    try:
+        with sqlite3.connect(DB) as conn:
+            conn.execute(
+                "INSERT INTO licenses (email, order_id, tier, issued_at) VALUES (?,?,?,?)",
+                (email, order_id, tier, datetime.utcnow().isoformat()),
+            )
+    except sqlite3.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="A license has already been issued for this order",
         )
 
     _send_license_email(email, token, tier)
