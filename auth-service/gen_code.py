@@ -1,5 +1,5 @@
 """
-Issue a license key manually — use this when a crypto buyer emails their tx hash.
+Issue a license key manually after verifying payment.
 
 Usage:
   python gen_code.py <email> <tier>
