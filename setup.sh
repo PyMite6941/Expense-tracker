@@ -11,4 +11,4 @@ if [ ! -f data.json ]; then
     echo "Created data.json"
 fi
 
-echo "Done. Run 'python3 run.py' to start."
+echo "Done. Run 'python run.py' to start."
