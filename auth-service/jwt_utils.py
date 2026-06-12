@@ -20,6 +20,7 @@ TIER_FEATURES = {
         "budget_forecasting",
         "receipt_ocr",
         "monthly_report",
+        "bot_connect",
     ],
     "max": [
         "advanced_categorization",
@@ -27,11 +28,13 @@ TIER_FEATURES = {
         "budget_forecasting",
         "receipt_ocr",
         "monthly_report",
+        "bot_connect",
         "deep_analysis",
         "multi_project",
         "export_premium",
         "priority_support",
         "net_worth",
+        "email_parsing",
     ],
 }
 
