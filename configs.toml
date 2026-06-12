@@ -16,3 +16,15 @@ port = 8000
 
 [streamlit]
 port = 8501
+
+[telegram]
+bot_token = ""   # From @BotFather on Telegram
+
+[discord]
+bot_token = ""   # From Discord Developer Portal
+
+[email]
+imap_server = ""         # e.g. imap.gmail.com
+imap_port = 993
+email_address = ""
+email_password = ""      # Use an App Password for Gmail/Outlook
