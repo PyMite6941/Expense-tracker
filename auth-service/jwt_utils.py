@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 
@@ -43,6 +44,13 @@ TIER_EXPIRY_DAYS = {
     "max": 31,
 }
 
+# Maximum distinct IPs (devices) a license of each tier may activate on.
+# The same IP reconnecting never counts twice — only distinct IPs are capped.
+TIER_IP_LIMITS = {
+    "pro": 3,
+    "max": 6,
+}
+
 def create_license_jwt(email: str, tier: str = "pro") -> str:
     tier = tier.lower()
     if tier not in TIER_FEATURES:
@@ -52,6 +60,10 @@ def create_license_jwt(email: str, tier: str = "pro") -> str:
         "sub": email,
         "features": TIER_FEATURES[tier],
         "tier": tier,
+        # jti uniquely identifies this key so the backend can track its IPs;
+        # max_ips is the signed, tamper-proof activation cap for the tier.
+        "jti": uuid.uuid4().hex,
+        "max_ips": TIER_IP_LIMITS[tier],
         "iat": now,
         "exp": now + timedelta(days=TIER_EXPIRY_DAYS[tier]),
     }

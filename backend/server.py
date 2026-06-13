@@ -16,6 +16,7 @@ from analytics import (
 from ai import answer_query, is_configured as ai_configured, recommend_budgets
 from bots import AdvancedCategorizationCrew
 from ocr import parse_receipt
+from ip_limits import check_and_register_ip, key_id_from_claims, reset_key
 
 log = logging.getLogger(__name__)
 
@@ -43,17 +44,41 @@ def _decode(credentials: HTTPAuthorizationCredentials) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired license key")
 
 
-def require_pro(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+def _client_ip(request: Request) -> str:
+    # Behind Cloud Run the real client IP is the first entry of X-Forwarded-For.
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+def _enforce_ip_limit(claims: dict, request: Request) -> None:
+    allowed, _count, limit = check_and_register_ip(claims, _client_ip(request))
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"This license key is already active on its maximum of {limit} "
+                f"devices/IPs. Email greshamd27@gmail.com to reset your activations."
+            ),
+        )
+
+
+def require_pro(request: Request,
+                credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     claims = _decode(credentials)
     if "advanced_categorization" not in claims.get("features", []):
         raise HTTPException(status_code=403, detail="This feature requires a Pro license")
+    _enforce_ip_limit(claims, request)
     return claims
 
 
-def require_max(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+def require_max(request: Request,
+                credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     claims = _decode(credentials)
     if "net_worth" not in claims.get("features", []):
         raise HTTPException(status_code=403, detail="This feature requires a Max license")
+    _enforce_ip_limit(claims, request)
     return claims
 
 
@@ -286,3 +311,31 @@ async def advanced_categorize(request: Request, _claims: dict = Depends(require_
     crew = AdvancedCategorizationCrew(context=context)
     result = crew.run(expenses)
     return result
+
+
+class ResetActivationsRequest(BaseModel):
+    key_id: Optional[str] = None   # the JWT jti
+    token: Optional[str] = None    # or the full license key, jti derived from it
+
+
+@app.post('/admin/reset-activations')
+def reset_activations(req: ResetActivationsRequest, request: Request):
+    """Clear a license's registered IPs. Guarded by the ADMIN_RESET_SECRET env
+    var, sent in the X-Admin-Secret header. Disabled (503) if the var is unset."""
+    secret = os.getenv('ADMIN_RESET_SECRET')
+    if not secret:
+        raise HTTPException(status_code=503, detail='Activation reset is not configured.')
+    if request.headers.get('x-admin-secret', '') != secret:
+        raise HTTPException(status_code=401, detail='Unauthorized')
+
+    key_id = req.key_id
+    if not key_id and req.token:
+        try:
+            claims = jwt.decode(req.token, JWT_SECRET, algorithms=[ALGORITHM])
+        except JWTError:
+            raise HTTPException(status_code=400, detail='Invalid token')
+        key_id = key_id_from_claims(claims)
+    if not key_id:
+        raise HTTPException(status_code=400, detail='Provide key_id or token')
+
+    return {'success': reset_key(key_id), 'key_id': key_id}
