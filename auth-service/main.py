@@ -1,11 +1,12 @@
 import os
 import re
-import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 
 import resend
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from google.cloud import firestore
+from google.api_core.exceptions import AlreadyExists, GoogleAPIError
 from jwt_utils import create_license_jwt, verify_license_jwt
 
 resend.api_key = os.getenv("RESEND_API_KEY", "")
@@ -26,7 +27,17 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Issue-Secret"],
 )
 
-DB = os.getenv("LICENSE_DB", "licenses.db")
+LICENSE_COLLECTION = os.getenv("LICENSE_COLLECTION", "licenses")
+
+_db = None
+
+
+def _firestore():
+    global _db
+    if _db is None:
+        _db = firestore.Client()
+    return _db
+
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -35,24 +46,9 @@ def _valid_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email)) and len(email) <= 254
 
 
-def init_db():
-    with sqlite3.connect(DB) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS licenses (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                email       TEXT NOT NULL,
-                order_id    TEXT UNIQUE,
-                tier        TEXT NOT NULL DEFAULT 'pro',
-                issued_at   TEXT NOT NULL
-            )
-            """
-        )
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
+def _safe_doc_id(order_id: str) -> str:
+    # Firestore document IDs cannot contain '/' and must be <= 1500 bytes.
+    return order_id.replace("/", "_")[:1500]
 
 
 @app.get("/health")
@@ -83,30 +79,32 @@ async def issue(request: Request):
     if not order_id:
         raise HTTPException(status_code=400, detail="order_id required")
 
-    # Idempotency — same order_id returns the same token
-    with sqlite3.connect(DB) as conn:
-        row = conn.execute(
-            "SELECT id FROM licenses WHERE order_id = ?", (order_id,)
-        ).fetchone()
-    if row:
-        raise HTTPException(
-            status_code=409,
-            detail="A license has already been issued for this order",
-        )
-
     token = create_license_jwt(email, tier=tier)
+    claims = verify_license_jwt(token) or {}
 
+    record = {
+        "email": email,
+        "order_id": order_id,
+        "tier": tier,
+        "jti": claims.get("jti"),
+        "max_ips": claims.get("max_ips"),
+        "token": token,
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Atomic idempotency: create() fails if a doc already exists for this
+    # order_id, so the same order can never mint two keys — even across
+    # instances (unlike the old per-instance SQLite check).
+    doc_ref = _firestore().collection(LICENSE_COLLECTION).document(_safe_doc_id(order_id))
     try:
-        with sqlite3.connect(DB) as conn:
-            conn.execute(
-                "INSERT INTO licenses (email, order_id, tier, issued_at) VALUES (?,?,?,?)",
-                (email, order_id, tier, datetime.utcnow().isoformat()),
-            )
-    except sqlite3.IntegrityError:
+        doc_ref.create(record)
+    except AlreadyExists:
         raise HTTPException(
             status_code=409,
             detail="A license has already been issued for this order",
         )
+    except GoogleAPIError as exc:
+        raise HTTPException(status_code=503, detail=f"License store unavailable: {exc}")
 
     _send_license_email(email, token, tier)
     return {"token": token, "email": email, "tier": tier}
