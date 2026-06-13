@@ -1,6 +1,8 @@
 import os
 import re
+import smtplib
 from datetime import datetime, timezone
+from email.message import EmailMessage
 
 import resend
 from fastapi import FastAPI, HTTPException, Request
@@ -17,6 +19,13 @@ ISSUE_SECRET = os.getenv("ISSUE_SECRET", "")
 # is set up (e.g. "GRID <licenses@yourdomain.com>"). The default resend.dev
 # domain only delivers to the Resend account owner.
 EMAIL_FROM = os.getenv("EMAIL_FROM", "GRID <licenses@resend.dev>")
+
+# Email transport: "resend" (Resend API) or "smtp" (Gmail / any SMTP server).
+EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "resend").lower()
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
 
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
@@ -115,27 +124,51 @@ async def issue(request: Request):
     return {"token": token, "email": email, "tier": tier, "email_sent": sent}
 
 
-def _send_license_email(to_email: str, token: str, tier: str) -> bool:
-    """Best-effort delivery. Never raises: the key is already recorded in
-    Firestore (with the token), so a delivery failure must not 500 the issue
-    call — the key can be re-sent from the ledger."""
-    if not resend.api_key:
-        print(f"[LICENSE] {tier.upper()} key for {to_email}:\n{token}")
-        return False
-    tier_label = "Max" if tier == "max" else "Pro"
-    try:
-        resend.Emails.send({
-            "from": EMAIL_FROM,
-            "to": to_email,
-            "subject": f"Your GRID {tier_label} License Key",
-            "html": f"""
+def _license_html(token: str, tier_label: str) -> str:
+    return f"""
 <p>Thanks for subscribing to GRID {tier_label}!</p>
 <p><strong>Your 31-day license key:</strong></p>
 <pre style="background:#111;padding:16px;border-radius:8px;font-size:13px;word-break:break-all">{token}</pre>
 <p>Paste it into the <strong>Pro Features</strong> page in the Expense Tracker app to activate.</p>
 <p style="color:#888;font-size:12px">Key expires in 31 days. Renew by placing a new order.</p>
-""",
-        })
+"""
+
+
+def _send_license_email(to_email: str, token: str, tier: str) -> bool:
+    """Best-effort delivery. Never raises: the key is already recorded in
+    Firestore (with the token), so a delivery failure must not 500 the issue
+    call — the key can be re-sent from the ledger.
+
+    EMAIL_PROVIDER picks the transport: 'smtp' (Gmail/any SMTP via
+    SMTP_USER/SMTP_PASS) or 'resend' (Resend API)."""
+    tier_label = "Max" if tier == "max" else "Pro"
+    subject = f"Your GRID {tier_label} License Key"
+    html = _license_html(token, tier_label)
+    text = (f"Your GRID {tier_label} license key (expires in 31 days):\n\n{token}\n\n"
+            "Paste it into the Pro Features page in the Expense Tracker app.")
+    try:
+        if EMAIL_PROVIDER == "smtp":
+            if not (SMTP_USER and SMTP_PASS):
+                print(f"[LICENSE] SMTP not configured; {tier.upper()} key for {to_email}:\n{token}")
+                return False
+            msg = EmailMessage()
+            msg["From"] = f"GRID <{SMTP_USER}>"
+            msg["To"] = to_email
+            msg["Subject"] = subject
+            msg.set_content(text)
+            msg.add_alternative(html, subtype="html")
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+                s.starttls()
+                s.login(SMTP_USER, SMTP_PASS)
+                s.send_message(msg)
+            return True
+
+        # default: Resend API
+        if not resend.api_key:
+            print(f"[LICENSE] {tier.upper()} key for {to_email}:\n{token}")
+            return False
+        resend.Emails.send({"from": EMAIL_FROM, "to": to_email,
+                            "subject": subject, "html": html})
         return True
     except Exception as exc:
         print(f"[LICENSE] email send failed for {to_email}: {exc}")
