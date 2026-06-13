@@ -106,27 +106,35 @@ async def issue(request: Request):
     except GoogleAPIError as exc:
         raise HTTPException(status_code=503, detail=f"License store unavailable: {exc}")
 
-    _send_license_email(email, token, tier)
-    return {"token": token, "email": email, "tier": tier}
+    sent = _send_license_email(email, token, tier)
+    return {"token": token, "email": email, "tier": tier, "email_sent": sent}
 
 
-def _send_license_email(to_email: str, token: str, tier: str):
+def _send_license_email(to_email: str, token: str, tier: str) -> bool:
+    """Best-effort delivery. Never raises: the key is already recorded in
+    Firestore (with the token), so a delivery failure must not 500 the issue
+    call — the key can be re-sent from the ledger."""
     if not resend.api_key:
         print(f"[LICENSE] {tier.upper()} key for {to_email}:\n{token}")
-        return
+        return False
     tier_label = "Max" if tier == "max" else "Pro"
-    resend.Emails.send({
-        "from": "GRID <licenses@resend.dev>",
-        "to": to_email,
-        "subject": f"Your GRID {tier_label} License Key",
-        "html": f"""
+    try:
+        resend.Emails.send({
+            "from": "GRID <licenses@resend.dev>",
+            "to": to_email,
+            "subject": f"Your GRID {tier_label} License Key",
+            "html": f"""
 <p>Thanks for subscribing to GRID {tier_label}!</p>
 <p><strong>Your 31-day license key:</strong></p>
 <pre style="background:#111;padding:16px;border-radius:8px;font-size:13px;word-break:break-all">{token}</pre>
 <p>Paste it into the <strong>Pro Features</strong> page in the Expense Tracker app to activate.</p>
 <p style="color:#888;font-size:12px">Key expires in 31 days. Renew by placing a new order.</p>
 """,
-    })
+        })
+        return True
+    except Exception as exc:
+        print(f"[LICENSE] email send failed for {to_email}: {exc}")
+        return False
 
 
 # ── Validate endpoint (used by the Streamlit app) ────────────────────────────
