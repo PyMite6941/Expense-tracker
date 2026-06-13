@@ -5,6 +5,14 @@ on:
     branches: [main]
     paths:
       - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+# Required for keyless auth: the job mints a GitHub OIDC token that
+# Workload Identity Federation exchanges for short-lived GCP credentials.
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   deploy:
@@ -16,14 +24,16 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy to Cloud Run
         run: |
           cd backend
-          gcloud run deploy expense-ocr \
+          gcloud run deploy expense-backend \
             --source . \
             --region us-central1 \
             --allow-unauthenticated \

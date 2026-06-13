@@ -10,6 +10,8 @@ Personal finance app with a CLI mode and a full Streamlit web UI. Tracks expense
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v1.5 | June 2026 | Keyless Cloud Run deploys via Workload Identity Federation; deploy targets `expense-backend`; docs consolidated into a single README |
+| v1.4 | June 2026 | Phone Connect (Pro) and Email Import (Max); single-file `published/` Streamlit app for cloud deployment |
 | v1.3 | June 2026 | Security fixes (input caps, IntegrityError handling, CSV ID assignment, float safety); crypto payment code removed |
 | v1.2 | April 10 2026 | Improved logic from v1.1; assets & liabilities; net worth (Max tier); config.py for cloud/local toggle |
 | v1.1 | April 2 2026 | Expenses, income, budget, goals, subscriptions |

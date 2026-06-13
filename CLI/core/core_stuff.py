@@ -1044,7 +1044,7 @@ class ExpenseTracker():
         return {'success':True,'message':f'Removed {count} duplicates'}
 
 
-__version__ = "v1.3"
+__version__ = "v1.5"
 
 # For getting web pages such as the GitHub page for this project
 import requests
