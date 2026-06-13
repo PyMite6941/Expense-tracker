@@ -82,9 +82,10 @@ def _init():
 
 
 def _sync():
+    # Only drop the cached data lists, NOT the tracker — dropping tracker would
+    # cause _get_tracker() to create a brand-new temp file and lose all data.
     for k in _DATA_KEYS:
         st.session_state.pop(k, None)
-    st.session_state.pop('tracker', None)
     _init()
 
 
@@ -148,9 +149,12 @@ def _cfg_path() -> str:
 def _load_cfg() -> dict:
     p = _cfg_path()
     try:
-        return json.loads(open(p).read()) if os.path.exists(p) else {}
+        if os.path.exists(p):
+            with open(p) as f:
+                return json.loads(f.read())
     except Exception:
-        return {}
+        pass
+    return {}
 
 
 def _save_cfg(cfg: dict):
@@ -253,7 +257,8 @@ def page_dashboard():
             st.subheader('Budget Status')
             cat_spent: dict = {}
             for e in me:
-                cat_spent[e['tags']] = cat_spent.get(e['tags'],0) + e['price']
+                tag = e.get('tags', 'Other')
+                cat_spent[tag] = cat_spent.get(tag, 0) + e['price']
             for b in st.session_state.budget:
                 spent = cat_spent.get(b['category'],0)
                 limit = float(b.get('amount', b.get('limit',0)))
@@ -288,9 +293,14 @@ def page_dashboard():
         st.divider()
         st.subheader('Spending Forecast')
         if st.session_state.expenses:
-            r = _api('/forecast', {'expenses':st.session_state.expenses,'base_currency':'USD'})
-            fc = r.json() if (r and r.ok) else {}
-            if fc.get('success') and fc.get('forecasts'):
+            if st.button('Refresh Forecast', key='ov_forecast_btn'):
+                with st.spinner('Calculating…'):
+                    r = _api('/forecast', {'expenses':st.session_state.expenses,'base_currency':'USD'})
+                    st.session_state['ov_forecast'] = r.json() if (r and r.ok) else {}
+            fc = st.session_state.get('ov_forecast')
+            if fc is None:
+                st.info('Click **Refresh Forecast** to load.')
+            elif fc.get('success') and fc.get('forecasts'):
                 st.caption(f"Based on {fc['based_on_months']} month(s) of history")
                 cols = st.columns(3)
                 for i,(cat,info) in enumerate(fc['forecasts'].items()):
@@ -303,13 +313,19 @@ def page_dashboard():
         st.divider()
         st.subheader('Unusual Expenses')
         if st.session_state.expenses:
-            r = _api('/detect-anomalies', {'expenses':st.session_state.expenses,'z_threshold':2.5})
-            ad = r.json() if (r and r.ok) else {}
-            for a in ad.get('anomalies',[]):
-                st.warning(f"**{a.get('purchased','—')}** — {a['price']:.2f} {a.get('currency','').upper()} "
-                           f"(z={a['z_score']}, +{a['deviation']:.2f} vs avg)", icon='🚨')
-            if not ad.get('anomalies'):
-                st.success('No unusual expenses detected.', icon='✅')
+            if st.button('Scan for Anomalies', key='ov_anomaly_btn'):
+                with st.spinner('Scanning…'):
+                    r = _api('/detect-anomalies', {'expenses':st.session_state.expenses,'z_threshold':2.5})
+                    st.session_state['ov_anomalies'] = r.json() if (r and r.ok) else {}
+            ad = st.session_state.get('ov_anomalies')
+            if ad is None:
+                st.info('Click **Scan for Anomalies** to check.')
+            else:
+                for a in ad.get('anomalies',[]):
+                    st.warning(f"**{a.get('purchased','—')}** — {a['price']:.2f} {a.get('currency','').upper()} "
+                               f"(z={a['z_score']}, +{a['deviation']:.2f} vs avg)", icon='🚨')
+                if not ad.get('anomalies'):
+                    st.success('No unusual expenses detected.', icon='✅')
 
         st.divider()
         st.subheader('Ask About Your Finances')
@@ -676,6 +692,14 @@ def page_monthly():
         dfm.plot(x='Month', y=['Expenses','Income'], kind='bar', ax=ax)
         ax.set_ylabel('Amount ($)'); plt.xticks(rotation=45,ha='right'); plt.tight_layout()
         st.pyplot(fig); plt.close(fig)
+
+        st.subheader('Savings Trend')
+        fig2, ax2 = plt.subplots(figsize=(10,3))
+        ax2.plot(dfm['Month'], dfm['Savings'], color='green', marker='o', linewidth=2, label='Savings')
+        ax2.axhline(0, color='red', linestyle='--', linewidth=1)
+        ax2.set_ylabel('Savings ($)'); ax2.legend()
+        plt.xticks(rotation=45, ha='right'); plt.tight_layout()
+        st.pyplot(fig2); plt.close(fig2)
 
     st.divider(); st.subheader('Export')
     c1,c2 = st.columns(2)
