@@ -13,6 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Fails fast with a clear message if the secret is missing rather than
+      # surfacing the confusing "specify exactly one of..." auth error.
+      - name: Verify secrets are set
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          missing=()
+          [ -z "$GCP_SA_KEY" ]     && missing+=("GCP_SA_KEY")
+          [ -z "$GCP_PROJECT_ID" ] && missing+=("GCP_PROJECT_ID")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required secret(s): ${missing[*]}"
+            echo "Go to Settings → Secrets and variables → Actions and add them."
+            exit 1
+          fi
+
       - id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -23,7 +39,7 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           cd backend
-          gcloud run deploy expense-ocr \
+          gcloud run deploy expense-backend \
             --source . \
             --region us-central1 \
             --allow-unauthenticated \
