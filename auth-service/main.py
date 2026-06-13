@@ -13,6 +13,11 @@ resend.api_key = os.getenv("RESEND_API_KEY", "")
 
 ISSUE_SECRET = os.getenv("ISSUE_SECRET", "")
 
+# Sender for license emails. Override with a verified Resend domain once DNS
+# is set up (e.g. "GRID <licenses@yourdomain.com>"). The default resend.dev
+# domain only delivers to the Resend account owner.
+EMAIL_FROM = os.getenv("EMAIL_FROM", "GRID <licenses@resend.dev>")
+
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:8501,http://127.0.0.1:8501,https://grid-store.pages.dev",
@@ -120,7 +125,7 @@ def _send_license_email(to_email: str, token: str, tier: str) -> bool:
     tier_label = "Max" if tier == "max" else "Pro"
     try:
         resend.Emails.send({
-            "from": "GRID <licenses@resend.dev>",
+            "from": EMAIL_FROM,
             "to": to_email,
             "subject": f"Your GRID {tier_label} License Key",
             "html": f"""
