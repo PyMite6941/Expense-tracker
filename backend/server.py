@@ -13,7 +13,12 @@ from analytics import (
     net_worth_snapshot, savings_rate_history, spending_by_category, tax_summary,
     upcoming_renewals,
 )
-from ai import answer_query, is_configured as ai_configured, recommend_budgets
+from ai import (
+    answer_query, is_configured as ai_configured, recommend_budgets,
+    smart_budget_advisor, expense_narrative, cash_flow_forecast,
+    debt_elimination_planner, investment_readiness_check,
+    financial_goal_coach, spending_dna_analysis,
+)
 from bots import AdvancedCategorizationCrew
 from ocr import parse_receipt
 
@@ -55,6 +60,21 @@ def require_max(credentials: HTTPAuthorizationCredentials = Depends(security)) -
     if "net_worth" not in claims.get("features", []):
         raise HTTPException(status_code=403, detail="This feature requires a Max license")
     return claims
+
+
+def _require_feature(feature: str, label: str):
+    """Factory: returns a FastAPI dependency that checks for a specific license feature."""
+    def _dep(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+        claims = _decode(credentials)
+        if feature not in claims.get("features", []):
+            raise HTTPException(status_code=403, detail=f"This feature requires a {label} license")
+        return claims
+    return _dep
+
+
+def _token_limit(claims: dict) -> int:
+    """Return max_tokens based on tier: Max gets 4096, Pro gets 2000."""
+    return 4096 if claims.get("tier") == "max" else 2000
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
@@ -151,6 +171,48 @@ class MonthlyComparisonRequest(BaseModel):
 class RecommendBudgetsRequest(BaseModel):
     expenses: list
     income: list
+
+
+class SmartBudgetRequest(BaseModel):
+    expenses: list
+    income: list
+    current_budget: list = []
+
+
+class ExpenseNarrativeRequest(BaseModel):
+    expenses: list
+    income: list
+    month: str
+
+
+class CashFlowForecastRequest(BaseModel):
+    expenses: list
+    income: list
+    recurring_expenses: list = []
+    recurring_income: list = []
+    months_ahead: int = Field(3, ge=1, le=12)
+
+
+class DebtPlannerRequest(BaseModel):
+    liabilities: list
+    monthly_payment_budget: float = 0.0
+
+
+class InvestmentReadinessRequest(BaseModel):
+    expenses: list
+    income: list
+    assets: list = []
+    goals: list = []
+
+
+class FinancialCoachRequest(BaseModel):
+    goals: list
+    expenses: list
+    income: list
+
+
+class SpendingDNARequest(BaseModel):
+    expenses: list
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -286,3 +348,147 @@ async def advanced_categorize(request: Request, _claims: dict = Depends(require_
     crew = AdvancedCategorizationCrew(context=context)
     result = crew.run(expenses)
     return result
+
+
+# ── Pro AI endpoints (token-limited by tier) ───────────────────────────────────
+
+@app.post('/smart-budget-advisor')
+def smart_budget(req: SmartBudgetRequest,
+                 claims: dict = Depends(_require_feature('smart_budget_advisor', 'Pro'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        result = smart_budget_advisor(
+            _cap(req.expenses, 'expenses'),
+            _cap(req.income, 'income'),
+            req.current_budget,
+            max_tokens=_token_limit(claims),
+        )
+        if not result.get('success'):
+            raise HTTPException(status_code=422, detail=result.get('raw', 'Analysis failed'))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/expense-narrative')
+def narrative(req: ExpenseNarrativeRequest,
+              claims: dict = Depends(_require_feature('expense_narrative', 'Pro'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        result = expense_narrative(
+            _cap(req.expenses, 'expenses'),
+            _cap(req.income, 'income'),
+            req.month,
+            max_tokens=_token_limit(claims),
+        )
+        if not result.get('success'):
+            raise HTTPException(status_code=422, detail=result.get('message', 'Narrative failed'))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/cash-flow-forecast')
+def cash_flow(req: CashFlowForecastRequest,
+              claims: dict = Depends(_require_feature('cash_flow_forecast', 'Pro'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    months = min(req.months_ahead, 3 if claims.get('tier') == 'pro' else 12)
+    try:
+        result = cash_flow_forecast(
+            _cap(req.expenses, 'expenses'),
+            _cap(req.income, 'income'),
+            req.recurring_expenses,
+            req.recurring_income,
+            months_ahead=months,
+            max_tokens=_token_limit(claims),
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+# ── Max AI endpoints (no token cap) ───────────────────────────────────────────
+
+@app.post('/debt-planner')
+def debt_plan(req: DebtPlannerRequest,
+              claims: dict = Depends(_require_feature('debt_planner', 'Max'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        result = debt_elimination_planner(
+            req.liabilities,
+            req.monthly_payment_budget,
+            max_tokens=_token_limit(claims),
+        )
+        if not result.get('success'):
+            raise HTTPException(status_code=422, detail=result.get('message', 'Planner failed'))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/investment-readiness')
+def investment(req: InvestmentReadinessRequest,
+               claims: dict = Depends(_require_feature('investment_readiness', 'Max'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        result = investment_readiness_check(
+            _cap(req.expenses, 'expenses'),
+            _cap(req.income, 'income'),
+            req.assets,
+            req.goals,
+            max_tokens=_token_limit(claims),
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/financial-coach')
+def coach(req: FinancialCoachRequest,
+          claims: dict = Depends(_require_feature('financial_coach', 'Max'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        result = financial_goal_coach(
+            req.goals,
+            _cap(req.expenses, 'expenses'),
+            _cap(req.income, 'income'),
+            max_tokens=_token_limit(claims),
+        )
+        if not result.get('success'):
+            raise HTTPException(status_code=422, detail=result.get('message', 'Coaching failed'))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post('/spending-dna')
+def dna(req: SpendingDNARequest,
+        claims: dict = Depends(_require_feature('spending_dna', 'Max'))):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    try:
+        result = spending_dna_analysis(
+            _cap(req.expenses, 'expenses'),
+            max_tokens=_token_limit(claims),
+        )
+        if not result.get('success'):
+            raise HTTPException(status_code=422, detail=result.get('message', 'Analysis failed'))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))

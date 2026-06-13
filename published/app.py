@@ -830,6 +830,132 @@ def page_pro():
                     for ins in d.get('insights',[]): st.info(ins, icon='💡')
                 else: st.error('Unavailable.')
 
+    st.divider(); st.header('AI Insights')
+
+    with st.expander('🎯 Smart Budget Advisor'):
+        st.caption('AI analyses your 50/30/20 rule compliance and recommends precise per-category limits.\n'
+                   'Pro: concise summary · Max: full breakdown with detailed action plans.')
+        if st.button('Analyse My Budget', key='sba_btn'):
+            with st.spinner('Analysing spending patterns…'):
+                r = _api('/smart-budget-advisor',
+                         {'expenses': expenses, 'income': st.session_state.income,
+                          'current_budget': st.session_state.budget},
+                         token=st.session_state.get('pro_token'))
+                if r and r.ok: st.session_state['sba_result'] = r.json()
+                elif r and r.status_code == 503: st.error('AI not configured on the server.')
+                elif r: st.error(f'Failed ({r.status_code}): {r.text[:200]}')
+                else: st.error('Backend unreachable.')
+        result = st.session_state.get('sba_result')
+        if result and result.get('success'):
+            ra = result.get('rule_analysis', {})
+            c1,c2,c3 = st.columns(3)
+            c1.metric('Needs %',   f"{ra.get('needs_pct',0):.1f}%",   'target 50%')
+            c2.metric('Wants %',   f"{ra.get('wants_pct',0):.1f}%",   'target 30%')
+            c3.metric('Savings %', f"{ra.get('savings_pct',0):.1f}%", 'target 20%')
+            if ra.get('compliance'): st.caption(ra['compliance'])
+            if result.get('summary'): st.write(result['summary'])
+            sp = result.get('savings_potential', 0)
+            if sp > 0: st.success(f'Monthly savings potential: **${sp:,.2f}**', icon='💡')
+            recs = result.get('recommendations', [])
+            if recs:
+                st.subheader('Per-Category Recommendations')
+                df_recs = pd.DataFrame([{
+                    'Category': r2['category'],
+                    'Current Avg': f"${r2.get('current_avg',0):.2f}",
+                    'Suggested Limit': f"${r2.get('suggested_limit',0):.2f}",
+                    'Change': f"{r2.get('change_pct',0):+.1f}%",
+                    'Action': r2.get('action',''),
+                } for r2 in recs])
+                st.dataframe(df_recs, hide_index=True, use_container_width=True)
+                for r2 in recs:
+                    with st.expander(f"💬 {r2['category']}"):
+                        st.write(r2.get('reasoning',''))
+
+    with st.expander('📖 Monthly Narrative'):
+        st.caption('AI writes a personalised 2-3 paragraph financial summary — '
+                   'a letter from your coach with a grade, highlights, and a tip for next month.')
+        all_months = sorted({e.get('date','')[:7] for e in expenses
+                             if len(e.get('date','')) >= 7}, reverse=True)
+        if not all_months:
+            st.info('No dated expenses yet.')
+        else:
+            narr_month = st.selectbox('Month to narrate', all_months, key='narr_month',
+                                      format_func=lambda m: pd.to_datetime(m).strftime('%B %Y'))
+            if st.button('Write My Narrative', key='narr_btn'):
+                with st.spinner('Writing…'):
+                    r = _api('/expense-narrative',
+                             {'expenses': expenses, 'income': st.session_state.income,
+                              'month': narr_month},
+                             token=st.session_state.get('pro_token'))
+                    if r and r.ok: st.session_state['narr_result'] = r.json()
+                    elif r and r.status_code == 503: st.error('AI not configured on the server.')
+                    elif r: st.error(f'Failed ({r.status_code})')
+                    else: st.error('Backend unreachable.')
+            result = st.session_state.get('narr_result')
+            if result and result.get('success'):
+                sent = result.get('sentiment','mixed')
+                grade = result.get('grade','')
+                sent_icon = '😊' if sent=='positive' else '😐' if sent=='mixed' else '😟'
+                st.markdown(f'### {sent_icon} {pd.to_datetime(narr_month).strftime("%B %Y")}  ·  Grade: **{grade}**')
+                st.markdown(result.get('narrative',''))
+                col_h,col_c = st.columns(2)
+                with col_h:
+                    if result.get('highlights'):
+                        st.subheader('✅ Highlights')
+                        for h in result['highlights']: st.success(h)
+                with col_c:
+                    if result.get('concerns'):
+                        st.subheader('⚠️ Concerns')
+                        for c2 in result['concerns']: st.warning(c2)
+                if result.get('tip'):
+                    st.info(f"💡 **Tip for next month:** {result['tip']}")
+
+    with st.expander('🌊 Cash Flow Forecast'):
+        st.caption('Projects income vs expenses over upcoming months using historical averages + recurring items.\n'
+                   'Pro: up to 3 months · Max: up to 12 months.')
+        is_max_user = st.session_state.get('pro_tier') == 'max'
+        max_mo = 12 if is_max_user else 3
+        months_ahead = st.slider('Months to project', 1, max_mo, min(3, max_mo), key='cff_slider')
+        if st.button('Run Cash Flow Forecast', key='cff_btn'):
+            with st.spinner('Forecasting…'):
+                r = _api('/cash-flow-forecast',
+                         {'expenses': expenses, 'income': st.session_state.income,
+                          'recurring_expenses': st.session_state.recurring_expenses,
+                          'recurring_income': st.session_state.recurring_income,
+                          'months_ahead': months_ahead},
+                         token=st.session_state.get('pro_token'))
+                if r and r.ok: st.session_state['cff_result'] = r.json()
+                elif r and r.status_code == 503: st.error('AI not configured on the server.')
+                elif r: st.error(f'Failed ({r.status_code})')
+                else: st.error('Backend unreachable.')
+        result = st.session_state.get('cff_result')
+        if result and result.get('success'):
+            projs = result.get('projections', [])
+            if projs:
+                st.dataframe(pd.DataFrame(projs), hide_index=True, use_container_width=True)
+                fig, ax = plt.subplots(figsize=(10,4))
+                x = [p['month'] for p in projs]
+                ax.bar(x, [p['predicted_income']   for p in projs], label='Income',   alpha=0.7, color='steelblue')
+                ax.bar(x, [p['predicted_expenses'] for p in projs], label='Expenses', alpha=0.7, color='salmon')
+                ax.plot(x, [p['net'] for p in projs], 'g-o', linewidth=2, label='Net')
+                ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
+                ax.set_ylabel('Amount ($)'); ax.legend()
+                plt.xticks(rotation=30, ha='right'); plt.tight_layout()
+                st.pyplot(fig); plt.close(fig)
+            trend = result.get('overall_trend','')
+            t_icon = '📈' if trend=='improving' else '📉' if trend=='deteriorating' else '➡️'
+            st.markdown(f'**{t_icon} Trend: {trend.title()}**')
+            if result.get('narrative'): st.markdown(result['narrative'])
+            col_r,col_o = st.columns(2)
+            with col_r:
+                if result.get('risks'):
+                    st.subheader('⚠️ Risks')
+                    for rk in result['risks']: st.warning(rk)
+            with col_o:
+                if result.get('opportunities'):
+                    st.subheader('💡 Opportunities')
+                    for op in result['opportunities']: st.info(op)
+
     st.divider(); st.header('AI Advanced Categorization')
     st.caption('Requires an active Pro or Max license.')
     if not _has('advanced_categorization'):
@@ -1054,10 +1180,28 @@ def page_settings():
             st.markdown('- Full dashboard CRUD\n- Monthly summaries\n- Recurring detection\n- Spending forecast\n- Anomaly detection\n- Tax summary\n- Health score\n- CSV/PDF export')
         with c_pro:
             st.markdown('**⭐ Pro**')
-            st.markdown('- Everything in Free\n- AI Advanced Categorization\n- 📱 Phone Connect\n  (Telegram & Discord)\n- Budget forecasting AI\n- Receipt OCR')
+            st.markdown(
+                '- Everything in Free\n'
+                '- 🎯 Smart Budget Advisor\n'
+                '- 📖 Monthly Narrative\n'
+                '- 🌊 Cash Flow Forecast (3 mo)\n'
+                '- 🤖 AI Advanced Categorization\n'
+                '- 📱 Phone Connect (Telegram & Discord)\n'
+                '- Receipt OCR'
+            )
         with c_max:
             st.markdown('**👑 Max**')
-            st.markdown('- Everything in Pro\n- 📧 Email Import\n- Net Worth tracking\n- Assets & Liabilities\n- Deep financial analysis\n- Multi-project support')
+            st.markdown(
+                '- Everything in Pro\n'
+                '- 💳 Debt Elimination Planner\n'
+                '- 📈 Investment Readiness\n'
+                '- 🎯 Financial Coach\n'
+                '- 🧬 Spending DNA\n'
+                '- 🌊 Cash Flow Forecast (12 mo)\n'
+                '- 📧 Email Import\n'
+                '- Net Worth, Assets & Liabilities\n'
+                '- No AI token limits'
+            )
 
     # ── Data ───────────────────────────────────────────────────────────────────
     with tab_data:
@@ -1110,6 +1254,234 @@ def page_settings():
         st.caption('Data lives only in this browser session. Export regularly to avoid losing it.')
 
 
+def page_max():
+    _init(); _license_badge()
+    st.title('👑 Max Features')
+    st.caption('Deep-intelligence AI tools — exclusive to the Max plan.')
+    _require('spending_dna', 'Max')
+
+    token = st.session_state.get('pro_token')
+
+    tab_debt, tab_inv, tab_coach, tab_dna = st.tabs([
+        '💳 Debt Planner', '📈 Investment Readiness', '🎯 Financial Coach', '🧬 Spending DNA',
+    ])
+
+    # ── Debt Elimination Planner ──────────────────────────────────────────────
+    with tab_debt:
+        st.subheader('Debt Elimination Planner')
+        st.caption('AI compares Avalanche (highest rate first) vs Snowball (smallest balance first) '
+                   'and recommends the optimal path for your situation.')
+        if not st.session_state.liabilities:
+            st.info('No liabilities on file. Add them in Dashboard → Assets & Liabilities.')
+        else:
+            budget_dp = st.number_input(
+                'Monthly debt payment budget ($)', min_value=0.0, step=50.0, key='dp_bud',
+                help='Total you can pay across all debts per month (0 = minimum payments only).')
+            if st.button('Plan My Payoff', type='primary', key='dp_btn'):
+                with st.spinner('Running payoff simulations…'):
+                    r = _api('/debt-planner',
+                             {'liabilities': st.session_state.liabilities,
+                              'monthly_payment_budget': budget_dp},
+                             token=token)
+                    if r and r.ok: st.session_state['dp_result'] = r.json()
+                    elif r and r.status_code == 503: st.error('AI not configured on server.')
+                    elif r: st.error(f'Failed ({r.status_code}): {r.text[:200]}')
+                    else: st.error('Backend unreachable.')
+            result = st.session_state.get('dp_result')
+            if result and result.get('success'):
+                st.metric('Total Debt', f"${result['total_debt']:,.2f}")
+                col_av, col_sn = st.columns(2)
+                av, sn = result.get('avalanche',{}), result.get('snowball',{})
+                with col_av:
+                    st.subheader('🏔️ Avalanche')
+                    st.caption('Highest interest rate first — minimises total interest paid')
+                    st.metric('Months to payoff', av.get('months_to_payoff','?'))
+                    st.metric('Total interest paid', f"${av.get('total_interest',0):,.2f}")
+                    if av.get('order'): st.write('Order: ' + ' → '.join(av['order']))
+                with col_sn:
+                    st.subheader('⛄ Snowball')
+                    st.caption('Smallest balance first — momentum through quick wins')
+                    st.metric('Months to payoff', sn.get('months_to_payoff','?'))
+                    st.metric('Total interest paid', f"${sn.get('total_interest',0):,.2f}")
+                    if sn.get('order'): st.write('Order: ' + ' → '.join(sn['order']))
+                st.divider()
+                rec = result.get('recommendation','')
+                r_icon = '🏔️' if rec=='avalanche' else '⛄' if rec=='snowball' else '🔀'
+                st.success(f'{r_icon} AI recommends: **{rec.upper()}**', icon='🤖')
+                if result.get('reasoning'): st.markdown(result['reasoning'])
+                if result.get('ai_advice'): st.markdown(result['ai_advice'])
+                sav = result.get('interest_savings', 0)
+                if sav > 0:
+                    st.info(f'Choosing the recommended method saves **${sav:,.2f}** in interest', icon='💰')
+                if result.get('action_steps'):
+                    st.subheader('Action Steps')
+                    for step in result['action_steps']: st.write(f'• {step}')
+
+    # ── Investment Readiness ──────────────────────────────────────────────────
+    with tab_inv:
+        st.subheader('Investment Readiness')
+        st.caption('AI calculates disposable income, emergency fund ratio, and risk tolerance — '
+                   'then recommends a personalised portfolio allocation.')
+        if st.button('Assess My Readiness', type='primary', key='ir_btn'):
+            with st.spinner('Building your investment profile…'):
+                r = _api('/investment-readiness',
+                         {'expenses': st.session_state.expenses,
+                          'income': st.session_state.income,
+                          'assets': st.session_state.assets,
+                          'goals': st.session_state.goals},
+                         token=token)
+                if r and r.ok: st.session_state['ir_result'] = r.json()
+                elif r and r.status_code == 503: st.error('AI not configured on server.')
+                elif r: st.error(f'Failed ({r.status_code})')
+                else: st.error('Backend unreachable.')
+        result = st.session_state.get('ir_result')
+        if result and result.get('success'):
+            rs = result.get('readiness_score', 0)
+            grade = 'A' if rs>=80 else 'B' if rs>=65 else 'C' if rs>=50 else 'D' if rs>=35 else 'F'
+            c1,c2,c3,c4 = st.columns(4)
+            c1.metric('Monthly Disposable', f"${result['monthly_disposable']:,.2f}")
+            c2.metric('Monthly Investable',  f"${result['monthly_investable']:,.2f}")
+            c3.metric('Emergency Fund',      f"{result['emergency_fund_months']:.1f} months")
+            c4.metric('Readiness Score',     f"{rs}/100 ({grade})")
+            rp = result.get('risk_profile','moderate')
+            rp_icon = '🔴' if rp=='aggressive' else '🟡' if rp=='moderate' else '🟢'
+            st.info(f'{rp_icon} Risk Profile: **{rp.upper()}**')
+            if result.get('readiness_summary'): st.markdown(result['readiness_summary'])
+            alloc = result.get('allocation',{})
+            if alloc:
+                st.subheader('Suggested Portfolio Allocation')
+                df_alloc = pd.DataFrame([
+                    {'Asset Class': k.replace('_',' ').title(), 'Allocation (%)': float(v)}
+                    for k,v in alloc.items() if v and float(v) > 0
+                ]).sort_values('Allocation (%)', ascending=False)
+                if not df_alloc.empty:
+                    col_tbl, col_pie = st.columns([2,3])
+                    with col_tbl:
+                        st.dataframe(df_alloc, hide_index=True, use_container_width=True)
+                    with col_pie:
+                        fig, ax = plt.subplots(figsize=(4,4))
+                        ax.pie(df_alloc['Allocation (%)'],
+                               labels=df_alloc['Asset Class'], autopct='%1.0f%%', startangle=90)
+                        st.pyplot(fig); plt.close(fig)
+            if result.get('priorities'):
+                st.subheader('Priorities')
+                for i,p in enumerate(result['priorities'],1): st.write(f'{i}. {p}')
+            if result.get('strategies'):
+                st.subheader('Strategies')
+                for s in result['strategies']: st.info(s, icon='💡')
+            if result.get('warnings'):
+                for w in result['warnings']: st.warning(w, icon='⚠️')
+
+    # ── Financial Coach ───────────────────────────────────────────────────────
+    with tab_coach:
+        st.subheader('Financial Coach')
+        st.caption('Personalised AI coaching per goal — progress assessment, timeline adjustments, '
+                   'and concrete action steps.')
+        if not st.session_state.goals:
+            st.info('No goals on file. Add them in Dashboard → Add → Goal.')
+        else:
+            if st.button('Coach Me', type='primary', key='fc_btn'):
+                with st.spinner('Coaching in progress…'):
+                    r = _api('/financial-coach',
+                             {'goals': st.session_state.goals,
+                              'expenses': st.session_state.expenses,
+                              'income': st.session_state.income},
+                             token=token)
+                    if r and r.ok: st.session_state['fc_result'] = r.json()
+                    elif r and r.status_code == 503: st.error('AI not configured on server.')
+                    elif r: st.error(f'Failed ({r.status_code})')
+                    else: st.error('Backend unreachable.')
+            result = st.session_state.get('fc_result')
+            if result and result.get('success'):
+                if result.get('overall_assessment'): st.info(result['overall_assessment'], icon='🎯')
+                if result.get('top_priority'): st.success(f'🥇 Top priority: **{result["top_priority"]}**')
+                st.subheader('Goal Progress')
+                for gs in result.get('goal_statuses',[]):
+                    pct = min(100.0, gs.get('pct',0))
+                    c1,c2 = st.columns([4,1])
+                    c1.write(f"**{gs['name']}** — {pct:.1f}%  (${gs['saved']:,.2f} / ${gs['target']:,.2f})")
+                    c1.progress(pct/100)
+                    on_track = gs.get('on_track', False)
+                    shortfall_str = f"⚠️ Short ${gs.get('shortfall', 0):.2f}/mo"
+                    c2.write('✅ On track' if on_track else shortfall_str)
+                st.divider(); st.subheader('Coaching')
+                for coaching in result.get('coaching',[]):
+                    status = coaching.get('status','')
+                    c_icon = '✅' if status=='on_track' else '🏆' if status=='completed' else '⚠️'
+                    with st.expander(f"{c_icon} {coaching.get('goal','?')} — {status.replace('_',' ').title()}"):
+                        if coaching.get('advice'): st.markdown(coaching['advice'])
+                        if coaching.get('timeline_note'): st.caption(coaching['timeline_note'])
+                        if coaching.get('action_steps'):
+                            st.subheader('Action Steps')
+                            for step in coaching['action_steps']: st.write(f'• {step}')
+                        if coaching.get('motivation'): st.success(coaching['motivation'], icon='💪')
+
+    # ── Spending DNA ──────────────────────────────────────────────────────────
+    with tab_dna:
+        st.subheader('Spending DNA')
+        st.caption('Discover your financial personality type through deep behavioural pattern analysis — '
+                   'peak days, merchant habits, impulse ratios, and category trends.')
+        if len(st.session_state.expenses) < 5:
+            st.info('Need at least 5 expenses for DNA analysis.')
+        else:
+            if st.button('Analyse My Spending DNA', type='primary', key='dna_btn'):
+                with st.spinner(f'Analysing {len(st.session_state.expenses)} transactions…'):
+                    r = _api('/spending-dna',
+                             {'expenses': st.session_state.expenses},
+                             token=token)
+                    if r and r.ok: st.session_state['dna_result'] = r.json()
+                    elif r and r.status_code == 503: st.error('AI not configured on server.')
+                    elif r: st.error(f'Failed ({r.status_code})')
+                    else: st.error('Backend unreachable.')
+            result = st.session_state.get('dna_result')
+            if result and result.get('success'):
+                ptype = result.get('personality_type','?')
+                pdesc = result.get('personality_description','')
+                st.markdown(f'## 🧬 {ptype}')
+                if pdesc: st.markdown(pdesc)
+                stats = result.get('stats',{})
+                c1,c2,c3,c4 = st.columns(4)
+                c1.metric('Transactions',      stats.get('total_transactions',0))
+                c2.metric('Peak Day',          stats.get('peak_day','?'))
+                c3.metric('Peak Period',       stats.get('peak_period','?').title()+' of month')
+                c4.metric('Impulse-Buy Ratio', f"{stats.get('impulse_ratio',0):.0%}")
+                st.divider()
+                col_t,col_s = st.columns(2)
+                with col_t:
+                    if result.get('traits'):
+                        st.subheader('Personality Traits')
+                        for trait in result['traits']: st.write(f'• {trait}')
+                    if result.get('strengths'):
+                        st.subheader('💪 Strengths')
+                        for s in result['strengths']: st.success(s)
+                with col_s:
+                    if result.get('watch_out_for'):
+                        st.subheader('⚠️ Watch Out For')
+                        for w in result['watch_out_for']: st.warning(w)
+                    merchants = stats.get('top_merchants',[])
+                    if merchants:
+                        st.subheader('🏪 Top Merchants')
+                        df_m = pd.DataFrame(merchants)
+                        if not df_m.empty and 'name' in df_m.columns:
+                            st.dataframe(
+                                df_m.rename(columns={'name':'Merchant','count':'Times','total':'Total ($)'}),
+                                hide_index=True, use_container_width=True)
+                if result.get('insights'):
+                    st.divider(); st.subheader('🔍 Key Insights')
+                    for ins in result['insights']: st.info(ins)
+                if result.get('recommendations'):
+                    st.subheader('📋 Recommendations')
+                    for rec in result['recommendations']: st.write(f'• {rec}')
+                trends = stats.get('category_trends',{})
+                if trends:
+                    st.divider(); st.subheader('Category Trends (3-month)')
+                    cols = st.columns(3)
+                    for i,(cat,trend) in enumerate(trends.items()):
+                        arrow = '↑' if trend=='increasing' else '↓' if trend=='decreasing' else '→'
+                        color = 'red' if trend=='increasing' else 'green' if trend=='decreasing' else 'gray'
+                        cols[i%3].markdown(f':{color}[{arrow} **{cat}**] — {trend}')
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # NAVIGATION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1127,6 +1499,7 @@ pg = st.navigation([
     st.Page(page_monthly,   title='Monthly Summary', icon='📅'),
     st.Page(page_recurring, title='Recurring',       icon='🔄'),
     st.Page(page_pro,       title='Pro Features',    icon='⭐'),
+    st.Page(page_max,       title='Max Features',    icon='👑'),
     st.Page(page_phone,     title='Phone Connect',   icon='📱'),
     st.Page(page_email,     title='Email Import',    icon='📧'),
     st.Page(page_settings,  title='Settings',        icon='⚙️'),
