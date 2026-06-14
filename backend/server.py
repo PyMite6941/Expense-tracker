@@ -1,11 +1,15 @@
+import hmac
 import logging
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from analytics import (
     budget_utilization, detect_anomalies, financial_health_score, forecast_spending,
@@ -20,10 +24,15 @@ from ip_limits import check_and_register_ip, key_id_from_claims, reset_key
 
 log = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 security = HTTPBearer()
 
-MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_BYTES = 10 * 1024 * 1024  # 10 MB for receipt images
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 ALGORITHM = "HS256"
 
@@ -95,18 +104,19 @@ def _cap(lst: list, name: str = 'list') -> list:
 
 class ForecastRequest(BaseModel):
     expenses: list
-    base_currency: str = 'USD'
+    base_currency: str = Field(default='USD', min_length=3, max_length=3,
+                               pattern=r'^[A-Za-z]{3}$')
 
 
 class AnomalyRequest(BaseModel):
     expenses: list
-    z_threshold: float = 2.5
+    z_threshold: float = Field(default=2.5, ge=1.0, le=5.0)
 
 
 class TaxSummaryRequest(BaseModel):
     expenses: list
     income: list
-    year: int
+    year: int = Field(..., ge=2000, le=2100)
     deductible_categories: Optional[list] = None
 
 
@@ -134,7 +144,7 @@ class HealthScoreRequest(BaseModel):
 
 class UpcomingRenewalsRequest(BaseModel):
     subscriptions: list
-    days_ahead: int = 30
+    days_ahead: int = Field(default=30, ge=1, le=365)
 
 
 class GoalProgressRequest(BaseModel):
@@ -143,12 +153,12 @@ class GoalProgressRequest(BaseModel):
 
 class SpendingByCategoryRequest(BaseModel):
     expenses: list
-    month: Optional[str] = None
+    month: Optional[str] = Field(default=None, pattern=r'^\d{4}-(?:0[1-9]|1[0-2])$')
 
 
 class MonthlyTotalsRequest(BaseModel):
     entries: list
-    amount_field: str = 'price'
+    amount_field: Literal['price', 'amount'] = 'price'
 
 
 class SavingsRateRequest(BaseModel):
@@ -159,7 +169,7 @@ class SavingsRateRequest(BaseModel):
 class BudgetUtilizationRequest(BaseModel):
     expenses: list
     budget: list
-    month: Optional[str] = None
+    month: Optional[str] = Field(default=None, pattern=r'^\d{4}-(?:0[1-9]|1[0-2])$')
 
 
 class IncomeVsExpensesRequest(BaseModel):
@@ -169,8 +179,8 @@ class IncomeVsExpensesRequest(BaseModel):
 
 class MonthlyComparisonRequest(BaseModel):
     expenses: list
-    month_a: str
-    month_b: str
+    month_a: str = Field(..., pattern=r'^\d{4}-(?:0[1-9]|1[0-2])$')
+    month_b: str = Field(..., pattern=r'^\d{4}-(?:0[1-9]|1[0-2])$')
 
 
 class RecommendBudgetsRequest(BaseModel):
@@ -181,12 +191,16 @@ class RecommendBudgetsRequest(BaseModel):
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @app.get('/health')
-def health():
+@limiter.limit("120/minute")
+def health(request: Request):
     return {'status': 'ok', 'ai_configured': ai_configured()}
 
 
+# Vision API call — Pro required, tight rate limit to control cost
 @app.post('/parse-receipt')
-async def parse(file: UploadFile):
+@limiter.limit("5/minute")
+async def parse(request: Request, file: UploadFile,
+                _claims: dict = Depends(require_pro)):
     if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail='File must be an image (jpg, png, etc.)')
     data = await file.read(MAX_BYTES + 1)
@@ -201,28 +215,37 @@ async def parse(file: UploadFile):
 
 
 @app.post('/net-worth')
-def net_worth(req: NetWorthRequest, _claims: dict = Depends(require_max)):
+@limiter.limit("20/minute")
+def net_worth(req: NetWorthRequest, request: Request,
+              _claims: dict = Depends(require_max)):
     data = {'expenses': req.expenses, 'income': req.income,
             'subscriptions': req.subscriptions, 'goals': req.goals,
             'assets': req.assets, 'liabilities': req.liabilities}
     return net_worth_snapshot(data)
 
 
+# Pro feature (budget_forecasting in JWT)
 @app.post('/forecast')
-def forecast(req: ForecastRequest):
+@limiter.limit("20/minute")
+def forecast(req: ForecastRequest, request: Request,
+             _claims: dict = Depends(require_pro)):
     result = forecast_spending(_cap(req.expenses, 'expenses'), base_currency=req.base_currency)
     if not result['success']:
         raise HTTPException(status_code=422, detail=result.get('message', 'Forecast failed'))
     return result
 
 
+# Pro feature (anomaly_detection in JWT)
 @app.post('/detect-anomalies')
-def anomalies(req: AnomalyRequest):
+@limiter.limit("20/minute")
+def anomalies(req: AnomalyRequest, request: Request,
+              _claims: dict = Depends(require_pro)):
     return detect_anomalies(_cap(req.expenses, 'expenses'), z_threshold=req.z_threshold)
 
 
 @app.post('/tax-summary')
-def tax(req: TaxSummaryRequest):
+@limiter.limit("30/minute")
+def tax(req: TaxSummaryRequest, request: Request):
     return tax_summary(
         _cap(req.expenses, 'expenses'),
         _cap(req.income, 'income'),
@@ -231,8 +254,11 @@ def tax(req: TaxSummaryRequest):
     )
 
 
+# LLM call — Pro required, tight rate limit to control cost
 @app.post('/query')
-def query(req: QueryRequest):
+@limiter.limit("10/minute")
+def query(req: QueryRequest, request: Request,
+          _claims: dict = Depends(require_pro)):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
     try:
@@ -243,54 +269,66 @@ def query(req: QueryRequest):
 
 
 @app.post('/health-score')
-def health_score(req: HealthScoreRequest):
+@limiter.limit("30/minute")
+def health_score(req: HealthScoreRequest, request: Request):
     data = {'expenses': req.expenses, 'income': req.income, 'budget': req.budget,
             'subscriptions': req.subscriptions, 'goals': req.goals}
     return financial_health_score(data)
 
 
 @app.post('/upcoming-renewals')
-def renewals(req: UpcomingRenewalsRequest):
+@limiter.limit("60/minute")
+def renewals(req: UpcomingRenewalsRequest, request: Request):
     return upcoming_renewals(req.subscriptions, days_ahead=req.days_ahead)
 
 
 @app.post('/goal-progress')
-def goals(req: GoalProgressRequest):
+@limiter.limit("60/minute")
+def goals(req: GoalProgressRequest, request: Request):
     return goal_progress(req.goals)
 
 
 @app.post('/spending-by-category')
-def by_category(req: SpendingByCategoryRequest):
+@limiter.limit("60/minute")
+def by_category(req: SpendingByCategoryRequest, request: Request):
     return spending_by_category(req.expenses, month=req.month)
 
 
 @app.post('/monthly-totals')
-def totals(req: MonthlyTotalsRequest):
+@limiter.limit("60/minute")
+def totals(req: MonthlyTotalsRequest, request: Request):
     return monthly_totals(req.entries, amount_field=req.amount_field)
 
 
 @app.post('/savings-rate')
-def savings(req: SavingsRateRequest):
+@limiter.limit("60/minute")
+def savings(req: SavingsRateRequest, request: Request):
     return savings_rate_history(req.expenses, req.income)
 
 
 @app.post('/budget-utilization')
-def utilization(req: BudgetUtilizationRequest):
+@limiter.limit("60/minute")
+def utilization(req: BudgetUtilizationRequest, request: Request):
     return budget_utilization(req.expenses, req.budget, month=req.month)
 
 
 @app.post('/income-vs-expenses')
-def inc_vs_exp(req: IncomeVsExpensesRequest):
+@limiter.limit("60/minute")
+def inc_vs_exp(req: IncomeVsExpensesRequest, request: Request):
     return income_vs_expenses(req.expenses, req.income)
 
 
 @app.post('/monthly-comparison')
-def comparison(req: MonthlyComparisonRequest):
+@limiter.limit("60/minute")
+def comparison(req: MonthlyComparisonRequest, request: Request):
     return monthly_comparison(req.expenses, req.month_a, req.month_b)
 
 
+# LLM call — Pro required, tight rate limit to control cost
 @app.post('/recommend-budgets')
-def recommend(req: RecommendBudgetsRequest):
+@limiter.limit("10/minute")
+def recommend(req: RecommendBudgetsRequest, request: Request,
+              _claims: dict = Depends(require_pro)):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
     try:
@@ -299,14 +337,19 @@ def recommend(req: RecommendBudgetsRequest):
         raise HTTPException(status_code=502, detail=str(exc))
 
 
+# CrewAI call — Pro required, very tight limit (slow + costly)
 @app.post('/advanced-categorize')
+@limiter.limit("5/minute")
 async def advanced_categorize(request: Request, _claims: dict = Depends(require_pro)):
     body = await request.json()
     expenses = body.get('expenses', [])
-    context = body.get('context', 'Categorize and analyze these expenses with advanced subcategories')
+    context = str(body.get('context',
+                            'Categorize and analyze these expenses with advanced subcategories'))
 
     if not expenses:
         raise HTTPException(status_code=400, detail='No expenses provided')
+    if len(context) > 500:
+        raise HTTPException(status_code=400, detail='context exceeds 500 characters')
 
     crew = AdvancedCategorizationCrew(context=context)
     result = crew.run(expenses)
@@ -319,13 +362,13 @@ class ResetActivationsRequest(BaseModel):
 
 
 @app.post('/admin/reset-activations')
+@limiter.limit("5/minute")
 def reset_activations(req: ResetActivationsRequest, request: Request):
-    """Clear a license's registered IPs. Guarded by the ADMIN_RESET_SECRET env
-    var, sent in the X-Admin-Secret header. Disabled (503) if the var is unset."""
     secret = os.getenv('ADMIN_RESET_SECRET')
     if not secret:
         raise HTTPException(status_code=503, detail='Activation reset is not configured.')
-    if request.headers.get('x-admin-secret', '') != secret:
+    incoming = request.headers.get('x-admin-secret', '')
+    if not hmac.compare_digest(incoming.encode(), secret.encode()):
         raise HTTPException(status_code=401, detail='Unauthorized')
 
     key_id = req.key_id

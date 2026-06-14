@@ -1,3 +1,4 @@
+import hmac
 import os
 import re
 import smtplib
@@ -11,6 +12,9 @@ from google.cloud import firestore
 from google.api_core.exceptions import AlreadyExists, GoogleAPIError
 from jwt_utils import create_license_jwt, verify_license_jwt
 from onchain import verify_usdc_payment
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 resend.api_key = os.getenv("RESEND_API_KEY", "")
 
@@ -34,7 +38,11 @@ ALLOWED_ORIGINS = os.getenv(
     "https://grid-store.pages.dev,https://web-store-4la.pages.dev",
 ).split(",")
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="Expense Tracker License Service")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,7 +76,8 @@ def _safe_doc_id(order_id: str) -> str:
 
 
 @app.get("/health")
-def health():
+@limiter.limit("120/minute")
+def health(request: Request):
     return {"status": "ok"}
 
 
@@ -109,10 +118,13 @@ def _issue_license(email: str, tier: str, order_id: str) -> dict:
 
 
 @app.post("/issue")
+@limiter.limit("10/minute")
 async def issue(request: Request):
     """Issue a license key. Requires X-Issue-Secret (for trusted/manual callers
     such as gen_code.py or a payment-processor webhook)."""
-    if ISSUE_SECRET and request.headers.get("X-Issue-Secret") != ISSUE_SECRET:
+    if ISSUE_SECRET and not hmac.compare_digest(
+        request.headers.get("X-Issue-Secret", "").encode(), ISSUE_SECRET.encode()
+    ):
         raise HTTPException(status_code=401, detail="Invalid or missing X-Issue-Secret header")
 
     body = await request.json()
@@ -131,6 +143,7 @@ async def issue(request: Request):
 
 
 @app.post("/redeem")
+@limiter.limit("5/minute")
 async def redeem(request: Request):
     """Public, no secret: a buyer submits their Base tx hash + email + tier.
     We confirm the USDC payment on-chain, then auto-issue. The tx hash is the
@@ -208,6 +221,7 @@ def _send_license_email(to_email: str, token: str, tier: str) -> bool:
 # ── Validate endpoint (used by the Streamlit app) ────────────────────────────
 
 @app.post("/validate")
+@limiter.limit("30/minute")
 async def validate_token(request: Request):
     body = await request.json()
     token = body.get("token", "")
