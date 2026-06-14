@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import firestore
 from google.api_core.exceptions import AlreadyExists, GoogleAPIError
 from jwt_utils import create_license_jwt, verify_license_jwt
+from onchain import verify_usdc_payment
 
 resend.api_key = os.getenv("RESEND_API_KEY", "")
 
@@ -29,7 +30,8 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:8501,http://127.0.0.1:8501,https://grid-store.pages.dev",
+    "http://localhost:8501,http://127.0.0.1:8501,"
+    "https://grid-store.pages.dev,https://web-store-4la.pages.dev",
 ).split(",")
 
 app = FastAPI(title="Expense Tracker License Service")
@@ -72,12 +74,44 @@ def health():
 
 # ── Issue license (called by the store after payment is verified externally) ──
 
+TIER_PRICE_USDC = {"pro": 9, "max": 20}
+
+
+def _issue_license(email: str, tier: str, order_id: str) -> dict:
+    """Mint + record + email a license. Idempotent on order_id."""
+    token = create_license_jwt(email, tier=tier)
+    claims = verify_license_jwt(token) or {}
+
+    record = {
+        "email": email,
+        "order_id": order_id,
+        "tier": tier,
+        "jti": claims.get("jti"),
+        "max_ips": claims.get("max_ips"),
+        "token": token,
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Atomic idempotency: create() fails if a doc already exists for this
+    # order_id, so one order (or one tx hash) can never mint two keys — even
+    # across instances.
+    doc_ref = _firestore().collection(LICENSE_COLLECTION).document(_safe_doc_id(order_id))
+    try:
+        doc_ref.create(record)
+    except AlreadyExists:
+        raise HTTPException(status_code=409,
+                            detail="A license has already been issued for this payment.")
+    except GoogleAPIError as exc:
+        raise HTTPException(status_code=503, detail=f"License store unavailable: {exc}")
+
+    sent = _send_license_email(email, token, tier)
+    return {"token": token, "email": email, "tier": tier, "email_sent": sent}
+
+
 @app.post("/issue")
 async def issue(request: Request):
-    """
-    Issue a license key. Requires X-Issue-Secret header to prevent abuse.
-    Call this after independently verifying payment (e.g. from gen_code.py).
-    """
+    """Issue a license key. Requires X-Issue-Secret (for trusted/manual callers
+    such as gen_code.py or a payment-processor webhook)."""
     if ISSUE_SECRET and request.headers.get("X-Issue-Secret") != ISSUE_SECRET:
         raise HTTPException(status_code=401, detail="Invalid or missing X-Issue-Secret header")
 
@@ -93,35 +127,31 @@ async def issue(request: Request):
     if not order_id:
         raise HTTPException(status_code=400, detail="order_id required")
 
-    token = create_license_jwt(email, tier=tier)
-    claims = verify_license_jwt(token) or {}
+    return _issue_license(email, tier, order_id)
 
-    record = {
-        "email": email,
-        "order_id": order_id,
-        "tier": tier,
-        "jti": claims.get("jti"),
-        "max_ips": claims.get("max_ips"),
-        "token": token,
-        "issued_at": datetime.now(timezone.utc).isoformat(),
-    }
 
-    # Atomic idempotency: create() fails if a doc already exists for this
-    # order_id, so the same order can never mint two keys — even across
-    # instances (unlike the old per-instance SQLite check).
-    doc_ref = _firestore().collection(LICENSE_COLLECTION).document(_safe_doc_id(order_id))
-    try:
-        doc_ref.create(record)
-    except AlreadyExists:
-        raise HTTPException(
-            status_code=409,
-            detail="A license has already been issued for this order",
-        )
-    except GoogleAPIError as exc:
-        raise HTTPException(status_code=503, detail=f"License store unavailable: {exc}")
+@app.post("/redeem")
+async def redeem(request: Request):
+    """Public, no secret: a buyer submits their Base tx hash + email + tier.
+    We confirm the USDC payment on-chain, then auto-issue. The tx hash is the
+    order_id, so each payment redeems exactly once."""
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    tier = (body.get("tier") or "pro").strip().lower()
+    tx_hash = (body.get("tx_hash") or "").strip().lower()
 
-    sent = _send_license_email(email, token, tier)
-    return {"token": token, "email": email, "tier": tier, "email_sent": sent}
+    if not _valid_email(email):
+        raise HTTPException(status_code=400, detail="Valid email required")
+    if tier not in TIER_PRICE_USDC:
+        raise HTTPException(status_code=400, detail="tier must be 'pro' or 'max'")
+    if not (tx_hash.startswith("0x") and len(tx_hash) == 66):
+        raise HTTPException(status_code=400, detail="Valid transaction hash required")
+
+    ok, reason, _amount = verify_usdc_payment(tx_hash, TIER_PRICE_USDC[tier])
+    if not ok:
+        raise HTTPException(status_code=402, detail=reason)
+
+    return _issue_license(email, tier, tx_hash)
 
 
 def _license_html(token: str, tier_label: str) -> str:
