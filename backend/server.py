@@ -9,7 +9,8 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from analytics import (
     budget_utilization, detect_anomalies, financial_health_score, forecast_spending,
@@ -24,11 +25,34 @@ from ip_limits import check_and_register_ip, key_id_from_claims, reset_key
 
 log = logging.getLogger(__name__)
 
-limiter = Limiter(key_func=get_remote_address)
+# Cloud Run sits behind a Google load balancer; request.client.host is always
+# the LB's internal IP, not the real caller. Use X-Forwarded-For instead so
+# each real client gets its own rate-limit bucket.
+def _real_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    return xff.split(",")[0].strip() if xff else (
+        request.client.host if request.client else "unknown"
+    )
+
+limiter = Limiter(key_func=_real_ip)
 
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Reject oversized JSON bodies before they reach any endpoint.
+# (Receipt uploads are handled separately with a per-read MAX_BYTES guard.)
+_JSON_BODY_LIMIT = 5 * 1024 * 1024  # 5 MB
+
+class _BodySizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method in ("POST", "PUT", "PATCH"):
+            cl = request.headers.get("content-length")
+            if cl and int(cl) > _JSON_BODY_LIMIT:
+                return JSONResponse({"detail": "Request body too large"}, status_code=413)
+        return await call_next(request)
+
+app.add_middleware(_BodySizeMiddleware)
 
 security = HTTPBearer()
 

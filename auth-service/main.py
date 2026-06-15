@@ -14,7 +14,8 @@ from jwt_utils import create_license_jwt, verify_license_jwt
 from onchain import verify_usdc_payment
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse as _JSONResponse
 
 resend.api_key = os.getenv("RESEND_API_KEY", "")
 
@@ -38,11 +39,27 @@ ALLOWED_ORIGINS = os.getenv(
     "https://grid-store.pages.dev,https://web-store-4la.pages.dev",
 ).split(",")
 
-limiter = Limiter(key_func=get_remote_address)
+def _real_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    return xff.split(",")[0].strip() if xff else (
+        request.client.host if request.client else "unknown"
+    )
+
+limiter = Limiter(key_func=_real_ip)
 
 app = FastAPI(title="Expense Tracker License Service")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+class _BodySizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method in ("POST", "PUT", "PATCH"):
+            cl = request.headers.get("content-length")
+            if cl and int(cl) > 64 * 1024:  # 64 KB is plenty for license JSON
+                return _JSONResponse({"detail": "Request body too large"}, status_code=413)
+        return await call_next(request)
+
+app.add_middleware(_BodySizeMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
