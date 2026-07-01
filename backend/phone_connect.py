@@ -21,9 +21,9 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 # Resolve project root so the bot can import CLI modules regardless of cwd.
 _HERE = Path(__file__).resolve().parent
