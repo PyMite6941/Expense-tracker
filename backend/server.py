@@ -121,10 +121,12 @@ def require_max(request: Request,
 
 def _require_feature(feature: str, label: str):
     """Factory: returns a FastAPI dependency that checks for a specific license feature."""
-    def _dep(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    def _dep(request: Request,
+             credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
         claims = _decode(credentials)
         if feature not in claims.get("features", []):
             raise HTTPException(status_code=403, detail=f"This feature requires a {label} license")
+        _enforce_ip_limit(claims, request)
         return claims
     return _dep
 
@@ -477,7 +479,8 @@ def reset_activations(req: ResetActivationsRequest, request: Request):
 # ── Pro AI endpoints (token-limited by tier) ───────────────────────────────────
 
 @app.post('/smart-budget-advisor')
-def smart_budget(req: SmartBudgetRequest,
+@limiter.limit("10/minute")
+def smart_budget(req: SmartBudgetRequest, request: Request,
                  claims: dict = Depends(_require_feature('smart_budget_advisor', 'Pro'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
@@ -498,7 +501,8 @@ def smart_budget(req: SmartBudgetRequest,
 
 
 @app.post('/expense-narrative')
-def narrative(req: ExpenseNarrativeRequest,
+@limiter.limit("10/minute")
+def narrative(req: ExpenseNarrativeRequest, request: Request,
               claims: dict = Depends(_require_feature('expense_narrative', 'Pro'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
@@ -519,7 +523,8 @@ def narrative(req: ExpenseNarrativeRequest,
 
 
 @app.post('/cash-flow-forecast')
-def cash_flow(req: CashFlowForecastRequest,
+@limiter.limit("10/minute")
+def cash_flow(req: CashFlowForecastRequest, request: Request,
               claims: dict = Depends(_require_feature('cash_flow_forecast', 'Pro'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
@@ -541,7 +546,8 @@ def cash_flow(req: CashFlowForecastRequest,
 # ── Max AI endpoints (no token cap) ───────────────────────────────────────────
 
 @app.post('/debt-planner')
-def debt_plan(req: DebtPlannerRequest,
+@limiter.limit("10/minute")
+def debt_plan(req: DebtPlannerRequest, request: Request,
               claims: dict = Depends(_require_feature('debt_planner', 'Max'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
@@ -561,7 +567,8 @@ def debt_plan(req: DebtPlannerRequest,
 
 
 @app.post('/investment-readiness')
-def investment(req: InvestmentReadinessRequest,
+@limiter.limit("10/minute")
+def investment(req: InvestmentReadinessRequest, request: Request,
                claims: dict = Depends(_require_feature('investment_readiness', 'Max'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
@@ -579,7 +586,8 @@ def investment(req: InvestmentReadinessRequest,
 
 
 @app.post('/financial-coach')
-def coach(req: FinancialCoachRequest,
+@limiter.limit("10/minute")
+def coach(req: FinancialCoachRequest, request: Request,
           claims: dict = Depends(_require_feature('financial_coach', 'Max'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
@@ -600,7 +608,8 @@ def coach(req: FinancialCoachRequest,
 
 
 @app.post('/spending-dna')
-def dna(req: SpendingDNARequest,
+@limiter.limit("10/minute")
+def dna(req: SpendingDNARequest, request: Request,
         claims: dict = Depends(_require_feature('spending_dna', 'Max'))):
     if not ai_configured():
         raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
