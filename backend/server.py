@@ -19,7 +19,6 @@ from ai import (
     debt_elimination_planner, investment_readiness_check,
     financial_goal_coach, spending_dna_analysis,
 )
-from bots import AdvancedCategorizationCrew
 from ocr import parse_receipt
 
 log = logging.getLogger(__name__)
@@ -344,6 +343,11 @@ async def advanced_categorize(request: Request, _claims: dict = Depends(require_
 
     if not expenses:
         raise HTTPException(status_code=400, detail='No expenses provided')
+
+    try:
+        from bots import AdvancedCategorizationCrew
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=f'Advanced categorization unavailable: {exc}')
 
     crew = AdvancedCategorizationCrew(context=context)
     result = crew.run(expenses)
