@@ -8,9 +8,12 @@ import sys
 sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 # Initialize the session states
 from CLI.app.streamlit_setup import init_st, sync_data
+from CLI.app.theme import page_setup, render_sidebar
 
+page_setup('Monthly Summary', '📅')
 init_st()
 
+render_sidebar()
 st.title('Monthly Summary')
 
 # Get current month and year

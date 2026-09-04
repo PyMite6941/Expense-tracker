@@ -1,4 +1,5 @@
 import hmac
+import ipaddress
 import logging
 import os
 from typing import Literal, Optional
@@ -29,14 +30,38 @@ from ip_limits import check_and_register_ip, key_id_from_claims, reset_key
 
 log = logging.getLogger(__name__)
 
-# Cloud Run sits behind a Google load balancer; request.client.host is always
-# the LB's internal IP, not the real caller. Use X-Forwarded-For instead so
-# each real client gets its own rate-limit bucket.
+# Cloud Run sits behind Google's front end; request.client.host is the peer,
+# not the real caller, so X-Forwarded-For is what identifies a client.
+#
+# SECURITY: read XFF from the RIGHT, never the left. A client can send its own
+# X-Forwarded-For and Google appends to it, so the leftmost entry is entirely
+# attacker-controlled. Taking xff.split(",")[0] (as this used to) let anyone
+# choose their own rate-limit bucket AND their own license-activation identity —
+# so a shared key could report one constant fake IP from any number of machines
+# and never exceed its device cap.
+#
+# The rightmost entry is the one the infrastructure appended and cannot be
+# forged. TRUSTED_PROXY_HOPS counts any ADDITIONAL trusted proxies in front of
+# Cloud Run (e.g. a custom external HTTPS LB, or Cloudflare); each one shifts
+# the real client one position further left. Default 0 = Cloud Run's *.run.app
+# URL hit directly, which is how these services are deployed today.
+_TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
+
+
 def _real_ip(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for", "")
-    return xff.split(",")[0].strip() if xff else (
-        request.client.host if request.client else "unknown"
-    )
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        idx = len(parts) - 1 - _TRUSTED_PROXY_HOPS
+        if 0 <= idx < len(parts):
+            candidate = parts[idx]
+            try:
+                ipaddress.ip_address(candidate.rsplit(":", 1)[0]
+                                     if candidate.count(":") == 1 else candidate)
+                return candidate
+            except ValueError:
+                log.warning("Unparseable X-Forwarded-For entry; falling back to peer")
+    return request.client.host if request.client else "unknown"
 
 limiter = Limiter(key_func=_real_ip)
 
@@ -51,9 +76,16 @@ _JSON_BODY_LIMIT = 5 * 1024 * 1024  # 5 MB
 class _BodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if request.method in ("POST", "PUT", "PATCH"):
+            # Content-Length is attacker-controlled; a non-numeric value used to
+            # raise ValueError here and surface as a 500 before any handler ran.
             cl = request.headers.get("content-length")
-            if cl and int(cl) > _JSON_BODY_LIMIT:
-                return JSONResponse({"detail": "Request body too large"}, status_code=413)
+            if cl:
+                try:
+                    too_big = int(cl) > _JSON_BODY_LIMIT
+                except ValueError:
+                    return JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
+                if too_big:
+                    return JSONResponse({"detail": "Request body too large"}, status_code=413)
         return await call_next(request)
 
 app.add_middleware(_BodySizeMiddleware)
@@ -61,17 +93,53 @@ app.add_middleware(_BodySizeMiddleware)
 security = HTTPBearer()
 
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB for receipt images
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 ALGORITHM = "HS256"
 
+# Must stay in lockstep with auth-service/jwt_utils.py — auth-service signs,
+# this service verifies, and both read the same Secret Manager value.
+_KNOWN_BAD_SECRETS = {
+    "change-me-in-production",
+    "replace-with-a-long-random-string",
+    "secret",
+    "changeme",
+}
+_MIN_SECRET_LEN = 32
 
-@app.on_event("startup")
-def _check_jwt_secret():
-    if JWT_SECRET == "change-me-in-production":
-        log.warning(
-            "JWT_SECRET is using the insecure default value. "
-            "Set the JWT_SECRET environment variable before deploying to production."
-        )
+
+def _load_verification_secret() -> str:
+    """Return the HS256 verification secret, or refuse to start.
+
+    Fails CLOSED. This used to default to "change-me-in-production" and only
+    warn, which meant a missing Secret Manager binding left every paid endpoint
+    open to anyone who forged a token with the placeholder published in this
+    public repo. ALLOW_INSECURE_JWT_SECRET=1 bypasses this for local dev only.
+    """
+    secret = (os.getenv("JWT_SECRET") or "").strip()
+    dev_ok = os.getenv("ALLOW_INSECURE_JWT_SECRET", "").lower() in ("1", "true", "yes")
+
+    if not secret:
+        problem = "JWT_SECRET is not set"
+    elif secret.lower() in _KNOWN_BAD_SECRETS:
+        problem = "JWT_SECRET is a well-known placeholder value"
+    elif len(secret) < _MIN_SECRET_LEN:
+        problem = f"JWT_SECRET is shorter than {_MIN_SECRET_LEN} characters"
+    else:
+        return secret
+
+    if dev_ok:
+        log.warning("%s — continuing anyway because ALLOW_INSECURE_JWT_SECRET is set. "
+                    "NEVER set that flag on a deployed service.", problem)
+        return secret or "insecure-development-secret"
+
+    raise RuntimeError(
+        f"{problem}. Every paid endpoint is gated on verifying license JWTs with "
+        "it, so this service refuses to start without a real one. Set JWT_SECRET "
+        "(32+ chars, identical to auth-service) or, for local development only, "
+        "set ALLOW_INSECURE_JWT_SECRET=1."
+    )
+
+
+JWT_SECRET = _load_verification_secret()
 
 
 def _decode(credentials: HTTPAuthorizationCredentials) -> dict:
@@ -82,11 +150,11 @@ def _decode(credentials: HTTPAuthorizationCredentials) -> dict:
 
 
 def _client_ip(request: Request) -> str:
-    # Behind Cloud Run the real client IP is the first entry of X-Forwarded-For.
-    xff = request.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else ""
+    # Single source of truth with the rate limiter — this used to be a second,
+    # subtly different copy that read the spoofable leftmost XFF entry. The
+    # license device-cap is enforced on this value, so it must not be forgeable.
+    ip = _real_ip(request)
+    return "" if ip == "unknown" else ip
 
 
 def _enforce_ip_limit(claims: dict, request: Request) -> None:

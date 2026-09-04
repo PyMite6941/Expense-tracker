@@ -1,14 +1,38 @@
+# GRID Expense Tracker — analytics / AI / OCR service (Cloud Run: expense-backend)
+# Built from backend/Dockerfile (python:3.13.7-slim).
+
+# ── Web framework ────────────────────────────────────────────────────────────
 fastapi>=0.110.0,<1.0.0
 uvicorn[standard]>=0.29.0,<1.0.0
 python-multipart>=0.0.9,<1.0.0
-python-jose[cryptography]>=3.3.0,<4.0.0
-google-cloud-firestore>=2.13.0,<3.0.0
-google-cloud-vision>=3.7.0,<4.0.0
-requests>=2.31.0,<3.0.0
-pandas>=2.0.0,<3.0.0
 pydantic>=2.0.0,<3.0.0
-crewai>=0.80.0,<1.0.0
-fastembed>=0.3.0,<1.0.0
+# Imported directly in server.py (BaseHTTPMiddleware, JSONResponse). Unpinned so
+# FastAPI keeps ownership of the compatible range — do not add bounds here.
+starlette
+
+# ── Licence verification + rate limiting ─────────────────────────────────────
+python-jose[cryptography]>=3.3.0,<4.0.0
 slowapi>=0.1.9,<1.0.0
+
+# ── Google Cloud ─────────────────────────────────────────────────────────────
+google-cloud-firestore>=2.13.0,<3.0.0   # licence IP-activation ledger
+google-cloud-vision>=3.7.0,<4.0.0       # receipt OCR
+
+# ── AI ───────────────────────────────────────────────────────────────────────
+crewai>=0.80.0,<1.0.0
+# Never imported by name — CrewAI loads it dynamically as the embedder provider
+# ("provider": "fastembed" in bots.py). Removing it breaks the crew at runtime
+# with no import error to point at it.
+fastembed>=0.3.0,<1.0.0
+
+# ── Bots (phone_connect.py) ──────────────────────────────────────────────────
 python-telegram-bot>=20.0,<22.0
 discord.py>=2.0,<3.0
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+requests>=2.31.0,<3.0.0
+pandas>=2.0.0,<4.0.0                    # bots.py
+# phone_connect.py prefers stdlib tomllib (3.11+) and only falls back to tomli
+# on older interpreters. The Dockerfile is 3.13, so this installs nowhere in
+# production — it is here for anyone running the service locally on 3.10.
+tomli>=2.0; python_version < "3.11"

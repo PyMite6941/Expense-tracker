@@ -11,59 +11,62 @@ from reportlab.pdfgen import canvas
 import requests
 # Add more time safety
 from typing import Optional,List,Dict,Any
+# Pluggable storage backends (local JSON file vs. hosted multi-tenant DB)
+try:
+    from .storage import (StorageBackend, JsonStore, BLANK_FINANCE, BLANK_ACCOUNT,
+                          ACCOUNT_TYPE_FIELDS,
+                          apply_account_type as _apply_account_type,
+                          normalize_blob)
+except ImportError:  # allow running as a top-level script / flat import
+    from storage import (StorageBackend, JsonStore, BLANK_FINANCE, BLANK_ACCOUNT,
+                         ACCOUNT_TYPE_FIELDS,
+                         apply_account_type as _apply_account_type,
+                         normalize_blob)
 
 class ExpenseTracker():
     # Initialize class variables
-    def __init__(self,filename:str='data.json') -> None:
+    def __init__(self,filename:str='data.json',store:'StorageBackend'=None) -> None:
         self.filename = filename
+        # Storage backend: defaults to the local JSON file (free / self-host mode).
+        # Hosted SaaS mode passes a SupabaseStore(org_id=...) with the same read/write
+        # contract, so no CRUD method below needs to change.
+        if store is None:
+            store = JsonStore(filename)
+        self.store = store
+        # Accounts from the last read, so a finance only save doesn't wipe them
+        self._accounts = None
         self.currency_symbols = {'usd':'$','eur':'€','gbp':'£','jpy':'¥','cny':'¥','inr':'₹','krw':'₩','thb':'฿','aud':'A$','cad':'C$','chf':'Fr','sgd':'S$','hkd':'HK$','nzd':'NZ$','sek':'kr','nok':'kr','dkk':'kr','rub':'₽','mxn':'Mex$','brl':'R$','zar':'R','czk':'Kč','pln':'zł','huf':'Ft','ron':'lei','bgn':'лв','try':'₺','myr':'RM','php':'₱','idr':'Rp','ils':'₪','isk':'kr','hrk':'kn',}
 
-    # Read data file
+    # The shapes and the account types live in storage.py, so the file format is
+    # defined in one place. These keep the old names working.
+    BLANK_DATA = BLANK_FINANCE
+    BLANK_ACCOUNTS = BLANK_ACCOUNT
+    ACCOUNT_TYPE_FIELDS = ACCOUNT_TYPE_FIELDS
+
+    # Set the default fields that belong to an account's type
+    def apply_account_type(self,account:dict) -> Dict[str,Any]:
+        return _apply_account_type(account)
+
+    # Read expense data file
     def open_file(self) -> Dict[str,Any]:
         try:
-            # Read the file using open() function
-            with open(self.filename,'r') as file:
-                data = json.load(file)
-            # If not organized right then organize it right
-            if not isinstance(data,dict):
-                data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[],'assets':[],'liabilities':[]}
-            # If not data list then create it
-            else:
-                if 'expenses' not in data:
-                    data['expenses'] = []
-                if 'income' not in data:
-                    data['income'] = []
-                if 'budget' not in data:
-                    data['budget'] = []
-                if 'subscriptions' not in data:
-                    data['subscriptions'] = []
-                if 'goals' not in data:
-                    data['goals'] = []
-                if 'recurring_expenses' not in data:
-                    data['recurring_expenses'] = []
-                if 'recurring_income' not in data:
-                    data['recurring_income'] = []
-                if 'assets' not in data:
-                    data['assets'] = []
-                if 'liabilities' not in data:
-                    data['liabilities'] = []
-            return {'success':True,'data':data}
+            # Read via the storage backend (local JSON file or hosted DB)
+            blob = normalize_blob(self.store.read())
         # If FileNotFound or JSONDecodeError then return empty list
         except (FileNotFoundError, json.JSONDecodeError):
-            data = {'expenses':[],'income':[],'budget':[],'subscriptions':[],'goals':[],'recurring_expenses':[],'recurring_income':[],'assets':[],'liabilities':[]}
-            self.write_file(data)
-            return {'success':True,'data':data}
-    
+            blob = normalize_blob({})
+        # Hold on to the accounts so a finance only save doesn't wipe them
+        self._accounts = blob['accounts_data']
+        return {'success':True,'data':blob['finance_data'],'accounts':blob['accounts_data']}
+
     # Update data file
-    def write_file(self,data:dict) -> None:
-        try:
-            # Overwrite all data to self.filename using open() function
-            with open(self.filename,'w') as file:
-                json.dump(data,file)
-        # If FileNotFound then create the data file
-        except FileNotFoundError:
-            with open(self.filename,'w') as file:
-                json.dump(data,file)
+    def write_file(self,data:dict,account_data:dict=None) -> None:
+        # Reuse the accounts from the last read when only the finance half is being saved
+        if account_data is None:
+            account_data = self._accounts if self._accounts is not None else dict(BLANK_ACCOUNT)
+        self._accounts = account_data
+        # Persist via the storage backend (local JSON file or hosted DB)
+        self.store.write({'finance_data':data,'accounts_data':account_data})
 
     # Assign the id to the expense for better organization
     def assign_id(self,data:List[dict]) -> int:

@@ -1,4 +1,5 @@
 import hmac
+import ipaddress
 import os
 import re
 import smtplib
@@ -39,11 +40,29 @@ ALLOWED_ORIGINS = os.getenv(
     "https://grid-store.pages.dev,https://web-store-4la.pages.dev",
 ).split(",")
 
+# SECURITY: read X-Forwarded-For from the RIGHT. A client can send its own XFF
+# header and Google appends to it, so the leftmost entry is attacker-controlled —
+# reading it (as this used to) let a caller pick their own rate-limit bucket and
+# brute-force /redeem or /issue without ever tripping a limit. The rightmost
+# entry is appended by the infrastructure and cannot be forged.
+# TRUSTED_PROXY_HOPS counts extra trusted proxies in front of Cloud Run.
+_TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
+
+
 def _real_ip(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for", "")
-    return xff.split(",")[0].strip() if xff else (
-        request.client.host if request.client else "unknown"
-    )
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        idx = len(parts) - 1 - _TRUSTED_PROXY_HOPS
+        if 0 <= idx < len(parts):
+            candidate = parts[idx]
+            try:
+                ipaddress.ip_address(candidate.rsplit(":", 1)[0]
+                                     if candidate.count(":") == 1 else candidate)
+                return candidate
+            except ValueError:
+                pass
+    return request.client.host if request.client else "unknown"
 
 limiter = Limiter(key_func=_real_ip)
 
@@ -54,9 +73,16 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 class _BodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if request.method in ("POST", "PUT", "PATCH"):
+            # Content-Length is attacker-controlled; a non-numeric value used to
+            # raise ValueError here and surface as a 500 before any handler ran.
             cl = request.headers.get("content-length")
-            if cl and int(cl) > 64 * 1024:  # 64 KB is plenty for license JSON
-                return _JSONResponse({"detail": "Request body too large"}, status_code=413)
+            if cl:
+                try:
+                    too_big = int(cl) > 64 * 1024  # 64 KB is plenty for license JSON
+                except ValueError:
+                    return _JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
+                if too_big:
+                    return _JSONResponse({"detail": "Request body too large"}, status_code=413)
         return await call_next(request)
 
 app.add_middleware(_BodySizeMiddleware)
@@ -139,7 +165,16 @@ def _issue_license(email: str, tier: str, order_id: str) -> dict:
 async def issue(request: Request):
     """Issue a license key. Requires X-Issue-Secret (for trusted/manual callers
     such as gen_code.py or a payment-processor webhook)."""
-    if ISSUE_SECRET and not hmac.compare_digest(
+    # Fail CLOSED. This used to read `if ISSUE_SECRET and not compare_digest(...)`,
+    # so an unset ISSUE_SECRET short-circuited the whole check and left /issue
+    # completely public — anyone could mint themselves a free Max license for
+    # any email. A missing secret must disable the endpoint, not unlock it.
+    if not ISSUE_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Issuing is not configured on this deployment.",
+        )
+    if not hmac.compare_digest(
         request.headers.get("X-Issue-Secret", "").encode(), ISSUE_SECRET.encode()
     ):
         raise HTTPException(status_code=401, detail="Invalid or missing X-Issue-Secret header")
@@ -209,7 +244,11 @@ def _send_license_email(to_email: str, token: str, tier: str) -> bool:
     try:
         if EMAIL_PROVIDER == "smtp":
             if not (SMTP_USER and SMTP_PASS):
-                print(f"[LICENSE] SMTP not configured; {tier.upper()} key for {to_email}:\n{token}")
+                # Never log the token itself — Cloud Run logs are retained and
+                # readable by anyone with logs.viewer, and the token IS the
+                # license. The key is already in Firestore; re-send from there.
+                print(f"[LICENSE] SMTP not configured; {tier.upper()} key for "
+                      f"{to_email} recorded in Firestore but not emailed.")
                 return False
             msg = EmailMessage()
             msg["From"] = f"GRID <{SMTP_USER}>"
@@ -225,7 +264,8 @@ def _send_license_email(to_email: str, token: str, tier: str) -> bool:
 
         # default: Resend API
         if not resend.api_key:
-            print(f"[LICENSE] {tier.upper()} key for {to_email}:\n{token}")
+            print(f"[LICENSE] RESEND_API_KEY not set; {tier.upper()} key for "
+                  f"{to_email} recorded in Firestore but not emailed.")
             return False
         resend.Emails.send({"from": EMAIL_FROM, "to": to_email,
                             "subject": subject, "html": html})
@@ -245,9 +285,12 @@ async def validate_token(request: Request):
     claims = verify_license_jwt(token)
     if not claims:
         raise HTTPException(status_code=401, detail="Invalid or expired license key")
+    # .get(), not [] — a legacy token issued before a claim existed would
+    # otherwise raise KeyError and surface as a 500 instead of a clean answer.
     return {
         "valid": True,
-        "email": claims["sub"],
-        "tier": claims["tier"],
-        "features": claims["features"],
+        "email": claims.get("sub", ""),
+        "tier": claims.get("tier", "pro"),
+        "features": claims.get("features", []),
+        "expires_at": claims.get("exp"),
     }

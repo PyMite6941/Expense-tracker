@@ -3,10 +3,47 @@
 .devcontainer
 __pycache__
 nul
-*.json
 *.csv
 *.pdf
 *.md
-.env
 pdf_converter.py
 test_backend.py
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# Named explicitly rather than relying on a blanket `*.json`. The repo is
+# PUBLIC, so this list is the last line of defence — add to it, never remove.
+.env
+.env.*
+!.env.example
+!*.env.example
+key.json
+**/key.json
+*credentials*.json
+*service-account*.json
+*-sa.json
+*.pem
+*.p12
+*.key
+
+# ── User finance data (privacy, not secrecy) ─────────────────────────────────
+# These hold real expense/income records. Never commit them.
+data.json
+rules.json
+**/data.json
+backups/
+
+# ── Local tooling ────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+licenses.db
+*.sqlite
+*.sqlite3
+
+# ── Node / web ───────────────────────────────────────────────────────────────
+node_modules/
+web/dist/
+.vercel
+
+# NOTE: `*.json` used to be ignored wholesale. That also excluded
+# web/package.json, web/package-lock.json and web/vercel.json — without which
+# the Vercel build of web/ cannot run at all — while giving only incidental
+# cover to the real secrets, which are now listed above by name.

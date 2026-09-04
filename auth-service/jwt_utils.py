@@ -6,13 +6,54 @@ from jose import jwt, JWTError
 
 log = logging.getLogger(__name__)
 
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
-if SECRET_KEY == "change-me-in-production":
-    log.warning(
-        "JWT_SECRET is using the insecure default. "
-        "Set JWT_SECRET in your environment before deploying."
-    )
 ALGORITHM = "HS256"
+
+# Secrets that must never sign a real license. The repo is public, so anything
+# committed here is public too — a service that silently fell back to one of
+# these would mint keys any reader of the repo could forge.
+_KNOWN_BAD_SECRETS = {
+    "change-me-in-production",
+    "replace-with-a-long-random-string",
+    "secret",
+    "changeme",
+}
+_MIN_SECRET_LEN = 32
+
+
+def _load_signing_secret() -> str:
+    """Return the HS256 signing secret, or refuse to start.
+
+    Fails CLOSED. This used to default to "change-me-in-production" and only
+    log a warning, so a missing Secret Manager binding produced a service that
+    booted healthy and accepted licenses forged with a secret published in this
+    repo. Set ALLOW_INSECURE_JWT_SECRET=1 to bypass for local development only.
+    """
+    secret = (os.getenv("JWT_SECRET") or "").strip()
+    dev_ok = os.getenv("ALLOW_INSECURE_JWT_SECRET", "").lower() in ("1", "true", "yes")
+
+    if not secret:
+        problem = "JWT_SECRET is not set"
+    elif secret.lower() in _KNOWN_BAD_SECRETS:
+        problem = "JWT_SECRET is a well-known placeholder value"
+    elif len(secret) < _MIN_SECRET_LEN:
+        problem = f"JWT_SECRET is shorter than {_MIN_SECRET_LEN} characters"
+    else:
+        return secret
+
+    if dev_ok:
+        log.warning("%s — continuing anyway because ALLOW_INSECURE_JWT_SECRET is set. "
+                    "NEVER set that flag on a deployed service.", problem)
+        return secret or "insecure-development-secret"
+
+    raise RuntimeError(
+        f"{problem}. auth-service signs license keys with it, so it refuses to "
+        "start without a real one. Set JWT_SECRET (32+ chars, matching the "
+        "backend service) or, for local development only, set "
+        "ALLOW_INSECURE_JWT_SECRET=1."
+    )
+
+
+SECRET_KEY = _load_signing_secret()
 
 TIER_FEATURES = {
     "pro": [

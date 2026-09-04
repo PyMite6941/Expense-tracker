@@ -21,7 +21,10 @@ for _p in (_ROOT, _BACKEND, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from CLI.core.core_stuff import ExpenseTracker  # noqa: E402
+from CLI.core.core_stuff import ExpenseTracker
+from CLI.core.storage import normalize_blob  # noqa: E402
+# Shared styling (streamlit-only import — pulls in no DB/config dependencies).
+from CLI.app.theme import inject_css, render_header  # noqa: E402
 
 # ── Cloud endpoints ────────────────────────────────────────────────────────────
 CLOUD_BACKEND = "https://expense-backend-690527435721.us-central1.run.app"
@@ -124,11 +127,18 @@ def _api(endpoint: str, payload: dict, token: str = None, timeout: int = 30):
 
 
 def _export_json() -> bytes:
-    return json.dumps(_get_tracker().open_file()['data'], indent=2).encode()
+    # Export the whole blob, accounts included, in the same shape the app stores.
+    loaded = _get_tracker().open_file()
+    return json.dumps({'finance_data': loaded['data'],
+                       'accounts_data': loaded.get('accounts') or {}},
+                      indent=2, default=str).encode()
 
 
 def _import_json(raw: bytes):
-    _get_tracker().write_file(json.loads(raw))
+    # normalize_blob takes either the wrapped shape or an older flat export, so
+    # a file from any version of the app imports without silently emptying it.
+    blob = normalize_blob(json.loads(raw))
+    _get_tracker().write_file(blob['finance_data'], blob['accounts_data'])
     _sync()
 
 
@@ -168,8 +178,16 @@ def _save_cfg(cfg: dict):
 
 def page_home():
     _init(); _license_badge()
-    st.title('💰 Expense Tracker')
+    # No st.title here — the shared theme header above already names the product.
     st.caption('Track income, expenses, budgets, goals, and subscriptions — all in one place.')
+    # This deployment keeps data in a per-session tempfile. Say so plainly —
+    # silently losing a user's finance data on refresh is not acceptable.
+    st.warning(
+        "**This demo does not save your data.** Everything is kept only for this "
+        "browser session. Use **Export Data** below to download a backup before "
+        "you leave, or run it locally / get hosted access for persistent storage.",
+        icon="⚠️",
+    )
 
     cm    = st.session_state.current_month
     label = _dt.datetime.strptime(cm, '%Y-%m').strftime('%B %Y')
@@ -237,9 +255,18 @@ def page_dashboard():
     _init(); _license_badge()
     st.title('📊 Dashboard')
 
-    tab_ov, tab_add, tab_edit, tab_del, tab_exp, tab_inc, tab_sub, tab_assets = st.tabs([
-        'Overview','Add','Edit','Delete','Expenses','Income','Subscriptions','Assets & Liabilities',
-    ])
+    # Grouped into four to match the local app. The originals are nested
+    # underneath, so every `with tab_*:` block below still works unchanged —
+    # Streamlit containers render wherever they were created.
+    tab_ov, tab_manage, tab_records, tab_assets = st.tabs(
+        ['Overview', 'Manage', 'Records', 'Net Worth']
+    )
+
+    with tab_manage:
+        tab_add, tab_edit, tab_del = st.tabs(['Add', 'Edit', 'Delete'])
+
+    with tab_records:
+        tab_exp, tab_inc, tab_sub = st.tabs(['Expenses', 'Income', 'Subscriptions'])
 
     # ── Overview ───────────────────────────────────────────────────────────────
     with tab_ov:
@@ -1118,7 +1145,38 @@ def page_settings():
     _init(); _license_badge()
     st.title('⚙️ Settings')
 
-    tab_lic, tab_data, tab_prefs = st.tabs(['License','Data','Preferences'])
+    # Tab names mirror the local app's Settings page (Account / Storage /
+    # Export & Backup) so the two surfaces read the same. Here "Account" is the
+    # license key, and "Storage" explains how to get persistence — this demo
+    # deliberately has none.
+    tab_lic, tab_storage, tab_data, tab_prefs = st.tabs(
+        ['Account', 'Storage', 'Export & Backup', 'Preferences']
+    )
+
+    # ── Storage ────────────────────────────────────────────────────────────────
+    with tab_storage:
+        st.subheader('Where your data lives')
+        st.warning(
+            '**This demo stores nothing permanently.** Your data lives in a '
+            'temporary file for this browser session only and is gone when the '
+            'session ends. Export a backup before you leave.',
+            icon='⚠️',
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown('**Local** — free, self-hosted')
+            st.caption('Run the app on your own machine and it saves to '
+                       '`data.json` permanently. No account needed.')
+            st.link_button('Get the app',
+                           'https://github.com/PyMite6941/Expense-tracker')
+        with c2:
+            st.markdown('**Hosted** — paid')
+            st.caption('Your organization\'s data in the cloud, shared with '
+                       'your team, backed up and persistent.')
+            st.link_button('Get hosted access', 'https://grid-store.pages.dev')
+        st.divider()
+        st.caption('Either option keeps your data. Use **Export & Backup** to '
+                   'download everything from this session and load it into one.')
 
     # ── License ────────────────────────────────────────────────────────────────
     with tab_lic:
@@ -1216,7 +1274,28 @@ def page_settings():
 
         st.divider()
         st.subheader('Export Data')
-        st.download_button('Download data.json', _export_json(), 'expense_tracker_data.json', 'application/json')
+        _data = _get_tracker().open_file()['data']
+        _lists = ['expenses','income','budget','subscriptions','goals',
+                  'recurring_expenses','recurring_income','assets','liabilities']
+        _counts = {k: len(_data.get(k) or []) for k in _lists}
+        st.caption(' · '.join(f"{k.replace('_',' ')}: **{v}**"
+                              for k, v in _counts.items() if v) or 'Nothing recorded yet.')
+
+        st.markdown('**Full backup** — every list in one file, restorable above.')
+        st.download_button('Download full backup (.json)', _export_json(),
+                           'expense_tracker_data.json', 'application/json',
+                           type='primary')
+
+        # Per-list CSV, matching the local Settings page.
+        _avail = [k for k in _lists if _counts.get(k)]
+        if _avail:
+            st.markdown('**Spreadsheet export**')
+            _which = st.selectbox('List', _avail,
+                                  format_func=lambda s: s.replace('_',' ').title())
+            _df = pd.DataFrame(_data.get(_which) or [])
+            st.download_button(f'Download {_which}.csv', _df.to_csv(index=False),
+                               f'{_which}.csv', 'text/csv')
+            st.dataframe(_df, use_container_width=True, hide_index=True)
 
         st.divider()
         st.subheader('Clear All Data')
@@ -1487,11 +1566,21 @@ def page_max():
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(
-    page_title='Expense Tracker',
-    page_icon='💰',
+    page_title='GRID Expense Tracker',
+    page_icon='💸',
     layout='wide',
     initial_sidebar_state='expanded',
 )
+
+# Same visual identity as the local app — CLI/app/theme.py is the single source
+# of truth, so the hosted URL and a local run look identical.
+# hide_sidebar_nav stays False on purpose: st.navigation() below renders INTO
+# the sidebar, so hiding it would remove this app's only navigation.
+# Module-level, so it re-injects on every rerun.
+inject_css(hide_sidebar_nav=False)
+# "session" badge, not "Local": _get_tracker() writes to a tempfile that dies
+# with the session, so calling it "Local" would imply a file that persists.
+render_header(mode="session")
 
 pg = st.navigation([
     st.Page(page_home,      title='Home',            icon='🏠', default=True),

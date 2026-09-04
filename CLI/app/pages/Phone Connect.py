@@ -6,10 +6,12 @@ import streamlit as st
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from CLI.app.streamlit_setup import init_st
+from CLI.app.theme import page_setup, render_sidebar, upsell
 
+page_setup('Phone Connect', '📱')
 init_st()
 
-st.set_page_config(page_title='Phone Connect', page_icon='📱')
+render_sidebar()
 st.title('📱 Phone Connect')
 st.caption('Control your expense tracker from Telegram or Discord — Pro & Max feature.')
 
@@ -17,10 +19,8 @@ st.caption('Control your expense tracker from Telegram or Discord — Pro & Max 
 
 _features = st.session_state.get('pro_features', [])
 if 'bot_connect' not in _features:
-    st.warning(
-        '**Phone Connect requires a Pro or Max license.**\n\n'
-        'Activate your license key on the ⭐ Pro Features page to unlock this.'
-    )
+    upsell('Phone Connect', 'Pro', blocking=True,
+           detail='Log expenses and check budgets from Telegram or Discord.')
     st.stop()
 
 # ── Config persistence (stored in .bot_config.json, gitignored) ────────────────

@@ -8,10 +8,12 @@ import streamlit as st
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from CLI.app.streamlit_setup import init_st, sync_data
 from CLI.core.core_stuff import ExpenseTracker
+from CLI.app.theme import page_setup, render_sidebar, upsell
 
+page_setup('Email Import', '📧')
 init_st()
 
-st.set_page_config(page_title='Email Import', page_icon='📧')
+render_sidebar()
 st.title('📧 Email Import')
 st.caption('Automatically find purchase receipts in your inbox and import them — Max feature.')
 
@@ -19,10 +21,8 @@ st.caption('Automatically find purchase receipts in your inbox and import them �
 
 _features = st.session_state.get('pro_features', [])
 if 'email_parsing' not in _features:
-    st.warning(
-        '**Email Import requires a Max license.**\n\n'
-        'Activate your Max license key on the ⭐ Pro Features page to unlock this.'
-    )
+    upsell('Email Import', 'Max', blocking=True,
+           detail='Scans your inbox for purchase receipts and imports them as expenses automatically.')
     st.stop()
 
 # ── Config persistence (stored in .bot_config.json alongside phone connect) ────
@@ -148,8 +148,6 @@ if not results:
 st.success(f'Found **{len(results)}** potential expense(s). Review and select which to import.', icon='📬')
 
 # Build a displayable dataframe (strip internal _ keys)
-_display_cols = ['_select', 'date', 'purchased', 'price', 'currency', 'tags', '_subject', '_from']
-
 rows = []
 for r in results:
     rows.append({

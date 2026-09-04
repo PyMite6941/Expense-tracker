@@ -11,18 +11,78 @@ from CLI.app.config import (
     BACKEND_MODE,
     CLOUD_BACKEND_URL, CLOUD_AUTH_URL,
     LOCAL_BACKEND_URL, LOCAL_AUTH_URL,
+    HOSTED_MODE, DATABASE_URL,
 )
+from CLI.core.tenancy import AuthUser, NoEntitlementError, make_store, get_role
 
 _local = BACKEND_MODE == "local"
 BACKEND_URL      = os.getenv("BACKEND_URL",      LOCAL_BACKEND_URL  if _local else CLOUD_BACKEND_URL)
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", LOCAL_AUTH_URL     if _local else CLOUD_AUTH_URL)
 USE_LOCAL_BACKEND = _local
 
+
+def current_account():
+    """Whoever this session is acting as, or None.
+
+    Two sources, in priority order:
+      1. An OIDC session (st.user) when the deployment configures one.
+      2. An account saved on the Settings page (st.session_state['account']).
+
+    The saved-account path is what makes the public site usable without an
+    identity provider — it is the flow the Settings page drives.
+    """
+    user = AuthUser.from_oidc(getattr(st, "user", None))
+    if user is not None:
+        return user
+    acct = st.session_state.get("account")
+    if acct and acct.get("email"):
+        return AuthUser(user_id=acct.get("user_id") or acct["email"],
+                        email=acct["email"], name=acct.get("name"))
+    return None
+
+
+def _build_tracker():
+    """Construct the ExpenseTracker with the right storage backend.
+
+    Local/self-hosted (free): data.json, no account needed — unchanged behavior.
+    Hosted (paid): the signed-in user's organization in Neon.
+
+    NEVER calls st.stop() here. init_st() runs on every page including Settings,
+    and stopping would make the very page that lets you sign in unreachable.
+    Instead we fall back to local storage and raise a flag the pages surface as
+    a prompt, so the app is always usable and the user can self-serve.
+    """
+    if not HOSTED_MODE:
+        return ExpenseTracker()
+
+    user = current_account()
+    if user is None:
+        st.session_state["needs_account"] = True
+        return ExpenseTracker()
+
+    try:
+        store = make_store(user=user, dsn=DATABASE_URL, hosted=True)
+    except NoEntitlementError:
+        st.session_state["needs_entitlement"] = True
+        return ExpenseTracker()
+    except Exception as exc:
+        st.session_state["storage_error"] = str(exc)
+        return ExpenseTracker()
+
+    # Viewers are read-only; pages should check st.session_state.role.
+    st.session_state.pop("needs_account", None)
+    st.session_state.pop("needs_entitlement", None)
+    st.session_state.auth_user = user
+    st.session_state.org_id = store.org_id
+    st.session_state.role = get_role(DATABASE_URL, store.org_id, user)
+    return ExpenseTracker(store=store)
+
+
 # Initialize the session states
 def init_st():
     # If class obj not in session state then import
     if 'tracker' not in st.session_state:
-        st.session_state.tracker = ExpenseTracker()
+        st.session_state.tracker = _build_tracker()
     # If expenses not in session state then import
     if 'expenses' not in st.session_state:
         results = st.session_state.tracker.view_total_expenses()
