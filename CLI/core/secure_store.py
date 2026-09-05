@@ -160,3 +160,90 @@ def save_secure(path: str, payload: Dict[str, Any],
         os.chmod(path, 0o600)
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Encryption at rest for hosted (database) storage
+#
+# Different threat model from the credential store above. Here the SERVER holds
+# the key, deliberately: hosted users still want net worth, forecasts and
+# anomaly detection computed for them, and a server cannot total what it cannot
+# read. This protects a leaked database credential, a stolen backup, or a
+# snapshot copied somewhere it should not be — not the application itself.
+#
+# Saying that plainly matters. "Encrypted at rest" is often read as "nobody can
+# read it", and that is not what this is.
+# ---------------------------------------------------------------------------
+
+_ROW_MAGIC = b"fk-row-v1"
+
+
+class MissingKeyError(RuntimeError):
+    """ET_ENCRYPTION_KEY is not set, so stored data cannot be read or written."""
+
+
+def _rest_key() -> bytes:
+    """The at-rest key, from the environment (Secret Manager in production).
+
+    Never stored in the database — a key sitting beside the ciphertext it
+    protects is not a key, it is a formality.
+    """
+    raw = (os.environ.get("ET_ENCRYPTION_KEY") or "").strip()
+    if not raw:
+        raise MissingKeyError(
+            "ET_ENCRYPTION_KEY is not set. Hosted storage is encrypted at rest, "
+            "so without it rows can be neither written nor read. Generate one "
+            "with: python -c \"import base64,os;"
+            "print(base64.urlsafe_b64encode(os.urandom(32)).decode())\""
+        )
+    try:
+        key = base64.urlsafe_b64decode(raw)
+    except Exception as exc:
+        raise MissingKeyError("ET_ENCRYPTION_KEY is not valid base64.") from exc
+    if len(key) != _KEY_BYTES:
+        raise MissingKeyError(
+            f"ET_ENCRYPTION_KEY must decode to {_KEY_BYTES} bytes "
+            f"(got {len(key)}); it should be a base64 32-byte key."
+        )
+    return key
+
+
+def encryption_enabled() -> bool:
+    """True when at-rest encryption is configured. Lets the app report honestly
+    rather than claiming protection it does not have."""
+    try:
+        _rest_key()
+        return True
+    except MissingKeyError:
+        return False
+
+
+def encrypt_row(payload: Dict[str, Any], aad: str = "") -> bytes:
+    """Encrypt one row's fields for storage.
+
+    `aad` binds the ciphertext to its context (table name + row id), so a row
+    cannot be lifted from one table or org and replayed into another — the
+    authentication check fails.
+    """
+    nonce = secrets.token_bytes(_NONCE_BYTES)
+    plaintext = json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
+    ct = AESGCM(_rest_key()).encrypt(nonce, plaintext, _ROW_MAGIC + aad.encode())
+    return _ROW_MAGIC + nonce + ct
+
+
+def decrypt_row(blob: Any, aad: str = "") -> Dict[str, Any]:
+    """Decrypt a stored row. {} for an empty/absent value."""
+    if not blob:
+        return {}
+    raw = bytes(blob)
+    if not raw.startswith(_ROW_MAGIC):
+        raise DecryptionError("Stored row is not in the expected encrypted format.")
+    body = raw[len(_ROW_MAGIC):]
+    nonce, ct = body[:_NONCE_BYTES], body[_NONCE_BYTES:]
+    try:
+        return json.loads(AESGCM(_rest_key()).decrypt(nonce, ct, _ROW_MAGIC + aad.encode()))
+    except InvalidTag as exc:
+        raise DecryptionError(
+            "Row failed its authentication check — wrong key, or the row has "
+            "been altered or moved between tables."
+        ) from exc

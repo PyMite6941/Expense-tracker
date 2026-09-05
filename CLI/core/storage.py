@@ -402,6 +402,45 @@ _TABLE_SPEC = {
 }
 
 
+def require_tls(dsn: str) -> str:
+    """Return the DSN with TLS forced on.
+
+    libpq's default sslmode is `prefer`: it attempts TLS and SILENTLY drops to
+    an unencrypted connection if the server allows one. For a connection
+    carrying somebody's entire financial history that default is not good
+    enough, and it fails open — you would never notice.
+
+    `require` encrypts but does not verify the server certificate;
+    `verify-full` also checks the hostname, which is what you want against a
+    managed provider like Neon. Set ET_DB_SSLMODE to override (for a local
+    Postgres on a socket, say).
+    """
+    import os as _os
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+    if not dsn:
+        return dsn
+    mode = _os.getenv("ET_DB_SSLMODE", "require")
+
+    # key=value form
+    if "://" not in dsn:
+        import re as _re
+        if _re.search(r"sslmode\s*=\s*(disable|allow|prefer)", dsn, _re.I):
+            return _re.sub(r"sslmode\s*=\s*\w+", f"sslmode={mode}", dsn, flags=_re.I)
+        return dsn if "sslmode=" in dsn else f"{dsn} sslmode={mode}"
+
+    parts = urlparse(dsn)
+    query = parse_qs(parts.query, keep_blank_values=True)
+    current = (query.get("sslmode") or [""])[0].lower()
+    # `disable` and `allow` mean no encryption, or encryption only if the server
+    # insists. Honouring either would make this function pointless, so they are
+    # upgraded. ET_DB_SSLMODE is the deliberate escape hatch.
+    if current in ("", "disable", "allow", "prefer"):
+        query["sslmode"] = [mode]
+        parts = parts._replace(query=urlencode(query, doseq=True))
+    return urlunparse(parts)
+
+
 class ConcurrentModificationError(RuntimeError):
     """Raised when another writer changed this org's data since it was loaded.
 
@@ -437,7 +476,8 @@ class PostgresStore(StorageBackend):
     """
 
     def __init__(self, dsn: str, org_id: int, created_by: str = None) -> None:
-        self.dsn = dsn
+        # TLS is forced on here, not assumed from whatever was in the env var.
+        self.dsn = require_tls(dsn)
         self.org_id = org_id
         self.created_by = created_by  # auth user id stamped on rows + audit_log
         self._version = None          # data_version observed at last read()

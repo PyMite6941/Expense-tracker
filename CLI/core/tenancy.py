@@ -26,9 +26,9 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 try:
-    from .storage import JsonStore, PostgresStore, StorageBackend
+    from .storage import JsonStore, PostgresStore, StorageBackend, require_tls
 except ImportError:  # allow flat imports / running as a script
-    from storage import JsonStore, PostgresStore, StorageBackend
+    from storage import JsonStore, PostgresStore, StorageBackend, require_tls
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ def claim_and_resolve_org(dsn: str, user: AuthUser) -> Tuple[Optional[int], int]
     """
     import psycopg
 
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+    with psycopg.connect(require_tls(dsn)) as conn, conn.cursor() as cur:
         cur.execute("select claim_entitlements(%s, %s)", (user.user_id, user.email))
         result = cur.fetchone()[0] or {}
         conn.commit()
@@ -87,7 +87,7 @@ def create_org(dsn: str, user: AuthUser, name: str = None, plan: str = "free") -
     import psycopg
 
     org_name = name or f"{user.email.split('@')[0]}'s workspace"
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+    with psycopg.connect(require_tls(dsn)) as conn, conn.cursor() as cur:
         cur.execute(
             "insert into organizations (name, plan, created_by) "
             "values (%s, %s::org_plan, %s) returning id",
@@ -110,7 +110,7 @@ def get_role(dsn: str, org_id: int, user: AuthUser) -> Optional[str]:
     """
     import psycopg
 
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+    with psycopg.connect(require_tls(dsn)) as conn, conn.cursor() as cur:
         cur.execute(
             "select role from members where org_id = %s and user_id = %s",
             (org_id, user.user_id),

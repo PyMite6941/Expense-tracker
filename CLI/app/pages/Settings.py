@@ -273,30 +273,66 @@ with tab_privacy:
         "**Account** tab and switch over on **Storage**. Until you do that, "
         "there is no server copy of anything."
     )
-    st.info(
-        "**Status: not yet enabled.** Hosted data is currently stored in the "
-        "database in readable form, protected by access control and the "
-        "provider's encryption of the disk underneath — not by encryption that "
-        "would stop the server itself reading it.\n\n"
-        "The intended design is that your data is encrypted **before it leaves "
-        "this machine**, with a key derived from your passphrase that is never "
-        "transmitted. The server would then hold ciphertext it cannot read.",
-        icon="🏗️",
+    st.markdown("**In transit**")
+    st.success(
+        "Every connection is encrypted, and now enforced rather than assumed. "
+        "The app refuses a non-https backend URL (localhost excepted, for "
+        "development), and the database connection has TLS forced on. libpq "
+        "defaults to `prefer`, which quietly drops to an unencrypted "
+        "connection if the server permits one \u2014 that default is now overridden.",
+        icon="\U0001F510",
     )
-    with st.expander("What that will mean for the hosted features"):
-        st.markdown(
-            "Worth knowing before it ships, because it is a real trade:\n\n"
-            "- **Anything the server computes for you stops working on hosted "
-            "data.** It cannot total what it cannot read. Those calculations "
-            "move to your device, exactly as they already have locally.\n"
-            "- **Losing the passphrase means losing the data.** That is what "
-            "'the server cannot read it' means — there is no reset, because "
-            "there is no copy of the key to reset it with.\n"
-            "- **Sharing a workspace with a team** needs the key shared with "
-            "them, not with us.\n\n"
-            "Running locally sidesteps all of this: nothing is uploaded, so "
-            "there is nothing to encrypt."
+
+    st.markdown("**At rest**")
+    try:
+        from CLI.core.secure_store import encryption_enabled as _enc_on
+        _on = _enc_on()
+    except Exception:
+        _on = False
+    if _on:
+        st.success(
+            "Encryption key configured. Hosted rows are stored as AES-256-GCM "
+            "ciphertext.",
+            icon="\U0001F510",
         )
+    else:
+        st.info(
+            "**Key not configured on this deployment.** The encryption layer "
+            "and the migration are written "
+            "(`db/migrations/005_encrypt_at_rest.sql`), but hosted storage will "
+            "not encrypt until `ET_ENCRYPTION_KEY` is set. Local mode is "
+            "unaffected \u2014 it never uploads anything to encrypt.",
+            icon="\U0001F3D7",
+        )
+    st.caption(
+        "Each row is encrypted with its table and id bound into the ciphertext, "
+        "so a row cannot be lifted from one table or organisation and replayed "
+        "into another. Tampering is detected rather than silently decrypting "
+        "to nonsense."
+    )
+
+    with st.expander("What this does and does not protect"):
+        st.markdown(
+            "**Protects:** a leaked database credential, a stolen or copied "
+            "backup, a snapshot that ends up somewhere it should not, or "
+            "anyone with read access to the database. In every one of those "
+            "cases the rows are ciphertext."
+        )
+        st.markdown(
+            "**Does not protect against the application itself.** Finance Kit "
+            "holds the key, because the server has to compute net worth, "
+            "forecasts and anomalies for hosted users \u2014 it cannot total "
+            "what it cannot read. This is encryption at rest, not "
+            "zero-knowledge: anyone with both the database *and* the app's key "
+            "can read the data."
+        )
+        st.markdown(
+            "That is a deliberate trade, and it is why there is no passphrase. "
+            "A passphrase-derived key would mean the server could compute "
+            "nothing for you, and losing the passphrase would mean losing the "
+            "data outright, with no reset possible."
+        )
+
 
 # ── EXPORT ───────────────────────────────────────────────────────────────
 with tab_export:

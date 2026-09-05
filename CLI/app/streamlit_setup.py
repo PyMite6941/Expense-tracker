@@ -16,8 +16,34 @@ from CLI.app.config import (
 from CLI.core.tenancy import AuthUser, NoEntitlementError, make_store, get_role
 
 _local = BACKEND_MODE == "local"
-BACKEND_URL      = os.getenv("BACKEND_URL",      LOCAL_BACKEND_URL  if _local else CLOUD_BACKEND_URL)
-AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", LOCAL_AUTH_URL     if _local else CLOUD_AUTH_URL)
+def _secure_url(value: str, fallback: str, name: str) -> str:
+    """Refuse a plaintext endpoint.
+
+    These URLs carry the licence JWT in an Authorization header and, for the AI
+    query, a summary of the user's finances. Both env vars were accepted
+    verbatim, so `BACKEND_URL=http://...` would have sent all of it in clear
+    with nothing said. http is allowed only for a local dev server, where it
+    never leaves the machine.
+    """
+    url = (value or "").strip() or fallback
+    if url.startswith("https://"):
+        return url
+    host = url.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    if url.startswith("http://") and host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return url
+    raise RuntimeError(
+        f"{name} must use https (got {url!r}). Plain http is only allowed for "
+        "localhost — anything else would put licence keys and financial data "
+        "on the wire in clear."
+    )
+
+
+BACKEND_URL      = _secure_url(os.getenv("BACKEND_URL"),
+                               LOCAL_BACKEND_URL if _local else CLOUD_BACKEND_URL,
+                               "BACKEND_URL")
+AUTH_SERVICE_URL = _secure_url(os.getenv("AUTH_SERVICE_URL"),
+                               LOCAL_AUTH_URL if _local else CLOUD_AUTH_URL,
+                               "AUTH_SERVICE_URL")
 USE_LOCAL_BACKEND = _local
 
 
