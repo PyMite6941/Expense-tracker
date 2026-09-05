@@ -35,7 +35,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="logo" />
-          <b>GRID Tracker</b>
+          <b>Finance Kit</b>
         </div>
         {NAV.map((n) => (
           <button

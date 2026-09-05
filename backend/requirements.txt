@@ -11,7 +11,14 @@ pydantic>=2.0.0,<3.0.0
 starlette
 
 # ── Licence verification + rate limiting ─────────────────────────────────────
-python-jose[cryptography]>=3.3.0,<4.0.0
+# PyJWT, NOT python-jose. python-jose 3.3.0 has three advisories on this exact
+# path (PYSEC-2024-232 algorithm confusion, PYSEC-2024-233 JWE bomb,
+# PYSEC-2025-185 JWE decrypt DoS with no fix) and depends on `ecdsa`, which has
+# an unfixed Minerva timing attack (PYSEC-2026-1325). PyJWT needs only
+# `cryptography`. HS256 is wire-identical, so licences already issued still verify.
+PyJWT>=2.10,<3                          # verified 2.12.1
+# Pinned above the chain-verification and OpenSSL advisories in 48.x.
+cryptography>=50.0
 slowapi>=0.1.9,<1.0.0
 
 # ── Google Cloud ─────────────────────────────────────────────────────────────
@@ -19,7 +26,9 @@ google-cloud-firestore>=2.13.0,<3.0.0   # licence IP-activation ledger
 google-cloud-vision>=3.7.0,<4.0.0       # receipt OCR
 
 # ── AI ───────────────────────────────────────────────────────────────────────
-crewai>=0.80.0,<1.0.0
+# Floor raised to pull litellm >=1.84 and chromadb >=1.2 — the 1.74/1.1
+# versions the old floor resolved to carried 16 advisories between them.
+crewai>=0.201,<1.0.0
 # Never imported by name — CrewAI loads it dynamically as the embedder provider
 # ("provider": "fastembed" in bots.py). Removing it breaks the crew at runtime
 # with no import error to point at it.
@@ -30,7 +39,10 @@ python-telegram-bot>=20.0,<22.0
 discord.py>=2.0,<3.0
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
-requests>=2.31.0,<3.0.0
+requests>=2.32.0,<3.0.0
+# urllib3 <2.7 mishandles ranged reads and cross-origin redirects
+# (PYSEC-2026-141/142); requests does not pin it high enough itself.
+urllib3>=2.7
 pandas>=2.0.0,<4.0.0                    # bots.py
 # phone_connect.py prefers stdlib tomllib (3.11+) and only falls back to tomli
 # on older interpreters. The Dockerfile is 3.13, so this installs nowhere in

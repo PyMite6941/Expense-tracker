@@ -1566,7 +1566,7 @@ def page_max():
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(
-    page_title='GRID Expense Tracker',
+    page_title='Finance Kit',
     page_icon='💸',
     layout='wide',
     initial_sidebar_state='expanded',

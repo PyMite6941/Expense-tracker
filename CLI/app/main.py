@@ -33,7 +33,7 @@ from CLI.app.theme import inject_css  # noqa: E402
 
 # Must be the first Streamlit call in the process.
 st.set_page_config(
-    page_title="GRID Expense Tracker",
+    page_title="Finance Kit",
     page_icon="💸",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -44,6 +44,7 @@ inject_css(hide_sidebar_nav=True)
 # deliberately short and lowercase — it is the thing users see and share.
 PAGE_SPECS = [
     ("Dashboard.py",                 "Overview",  "🏠", "overview"),
+    ("pages/Accounts.py",            "Accounts",  "🏦", "accounts"),
     ("pages/Monthly Summary.py",     "Monthly",   "📅", "monthly"),
     ("pages/Recurring Expenses.py",  "Recurring", "🔁", "recurring"),
     ("pages/Pro Features.py",        "Pro",       "✨", "pro"),

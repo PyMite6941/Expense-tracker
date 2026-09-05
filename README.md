@@ -1,4 +1,4 @@
-# GRID — Expense Tracker
+# Finance Kit
 
 Personal finance app with a CLI mode and a full Streamlit web UI. Tracks expenses, income, budgets, subscriptions, goals, recurring transactions, assets, and liabilities. AI analytics and net worth run server-side on Google Cloud Run.
 
@@ -185,7 +185,7 @@ python gen_code.py <email> <pro|max>
 | `LICENSE_COLLECTION` | Firestore collection for the license ledger (default: `licenses`) |
 | `TRUSTED_PROXY_HOPS` | Trusted proxies in front of Cloud Run (default `0`) |
 
-All secrets are stored in GCP Secret Manager in project `fair-geography-493716-q4`.
+All secrets are stored in GCP Secret Manager. Project details are kept out of this repo.
 `auth-service/.env.example` is the committed template.
 
 > The license ledger lives in **Firestore**, not SQLite — Cloud Run filesystems

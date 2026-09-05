@@ -45,20 +45,163 @@ BLANK_FINANCE: Dict[str, list] = {
     "recurring_expenses": [], "recurring_income": [], "assets": [], "liabilities": [],
 }
 
-# A new account. `type` is blank on purpose: until it is picked we do not know
-# whether this is savings or checking, so no type-specific field is assumed.
-BLANK_ACCOUNT: Dict[str, Any] = {"type": "", "expenses": [], "deposits": []}
+# Accounts are a LIST — you have several, and each one is customised: two
+# savings accounts at different banks will not carry the same fields.
+BLANK_ACCOUNTS: list = []
+
+# The fields every account has regardless of type. `type` is blank on purpose:
+# until it is picked we do not know whether this is savings or checking, so no
+# type-specific field is assumed.
+BLANK_ACCOUNT: Dict[str, Any] = {"id": None, "name": "", "type": "",
+                                 "expenses": [], "deposits": []}
+
+
+def next_account_id(accounts: list) -> int:
+    """Smallest free positive id. Ids are stable, so a transfer can point at one."""
+    used = {a.get("id") for a in accounts if isinstance(a, dict)}
+    i = 1
+    while i in used:
+        i += 1
+    return i
+
+
+def new_account(name: str = "", account_type: str = "", accounts: list = None) -> Dict[str, Any]:
+    """A blank account record. Carries NO type fields — those arrive only as
+    the user actually fills them in (see apply_account_type's fill_defaults)."""
+    acc = {k: (list(v) if isinstance(v, list) else v) for k, v in BLANK_ACCOUNT.items()}
+    acc["id"] = next_account_id(accounts or [])
+    acc["name"] = name
+    acc["type"] = str(account_type or "").lower()
+    return acc
 
 # Extra fields each account type carries, and the value they start at.
 # Add a type here and it gets its defaults applied everywhere, automatically.
+#
+# The field sets model what these products ACTUALLY differ on, so the app can
+# say something true about each one:
+#   * apy vs apr  — a deposit account pays you (annual percentage YIELD, which
+#                   already includes compounding); a card charges you (annual
+#                   percentage RATE, which does not). Same number, opposite
+#                   direction, different maths — so they are different fields
+#                   and switching type swaps one for the other.
+#   * compound    — daily is the US norm for savings/MMA; monthly and quarterly
+#                   exist. It is the difference between a correct projection
+#                   and an approximate one.
+#   * fee fields  — the reason a traditional savings account can lose to a
+#                   high-yield one even at the same headline rate.
+#
+# NOTE on money-market tiering: real MMAs often pay a different rate per balance
+# band. That is modelled here as a single `apy` you set for your current tier,
+# not as a rate table. Deliberate simplification — a tier table is a nested
+# structure the rest of the data layer has no shape for yet.
 ACCOUNT_TYPE_FIELDS: Dict[str, Dict[str, Any]] = {
-    "":         {},
-    "checking": {"balance": 0.0, "currency": "usd"},
-    "savings":  {"balance": 0.0, "currency": "usd", "interest_rate": 0.0, "compound": "monthly"},
-    "credit":   {"balance": 0.0, "currency": "usd", "credit_limit": 0.0,
-                 "interest_rate": 0.0, "statement_day": 1},
-    "cash":     {"balance": 0.0, "currency": "usd"},
+    # Not chosen yet — an account keeps only the base fields until you pick.
+    "": {},
+
+    # ── Everyday / transactional ─────────────────────────────────────────────
+    "checking": {
+        "balance": 0.0, "currency": "usd",
+        "monthly_fee": 0.0,          # maintenance fee
+        "min_balance": 0.0,          # balance that waives the fee
+        "overdraft_protection": False,
+    },
+    "interest_checking": {           # "rewards"/"high-yield" checking
+        "balance": 0.0, "currency": "usd",
+        "apy": 0.0, "compound": "monthly",
+        "monthly_fee": 0.0, "min_balance": 0.0,
+        "overdraft_protection": False,
+    },
+    "cash": {
+        "balance": 0.0, "currency": "usd",
+    },
+
+    # ── Savings ──────────────────────────────────────────────────────────────
+    "savings": {                     # traditional / brick-and-mortar
+        "balance": 0.0, "currency": "usd",
+        "apy": 0.0, "compound": "daily",
+        "min_balance": 0.0, "monthly_fee": 0.0,
+        "withdrawal_limit": 6,       # many banks still cap this per cycle
+    },
+    "online_savings": {              # high-yield. Usually no fee, no minimum,
+        "balance": 0.0, "currency": "usd",   # but transfers out take days.
+        "apy": 0.0, "compound": "daily",
+        "transfer_days": 3,          # ACH settlement — why it is not spendable
+    },
+    "mma": {                         # money market account
+        "balance": 0.0, "currency": "usd",
+        "apy": 0.0, "compound": "daily",
+        "min_balance": 0.0, "monthly_fee": 0.0,
+        "check_writing": True,       # the thing that separates an MMA from savings
+        "debit_card": True,
+    },
+    "cd": {                          # certificate of deposit
+        "balance": 0.0, "currency": "usd",
+        "apy": 0.0, "compound": "daily",
+        "term_months": 12,
+        "maturity_date": "",
+        "early_withdrawal_penalty_months": 3,   # months of interest forfeited
+    },
+
+    # ── Credit ───────────────────────────────────────────────────────────────
+    "credit": {
+        "balance": 0.0, "currency": "usd",      # what you OWE (see ACCOUNT_TYPE_META)
+        "credit_limit": 0.0,
+        "apr": 0.0,
+        "statement_day": 1,
+        "due_day": 25,
+        "min_payment": 0.0,
+    },
 }
+
+# Presentation + behaviour that is not a field default.
+#
+# `sign` is the load-bearing one: a credit balance is money owed, so it counts
+# AGAINST net worth. Without this flag nothing downstream can tell a $2,000
+# savings balance from a $2,000 card balance.
+ACCOUNT_TYPE_META: Dict[str, Dict[str, Any]] = {
+    "":                  {"label": "Not set yet",     "group": "",          "sign": "asset"},
+    "checking":          {"label": "Checking",        "group": "Everyday",  "sign": "asset"},
+    "interest_checking": {"label": "Interest checking","group": "Everyday", "sign": "asset"},
+    "cash":              {"label": "Cash",            "group": "Everyday",  "sign": "asset"},
+    "savings":           {"label": "Savings",         "group": "Savings",   "sign": "asset"},
+    "online_savings":    {"label": "Online savings (high-yield)",
+                                                      "group": "Savings",   "sign": "asset"},
+    "mma":               {"label": "Money market (MMA)", "group": "Savings", "sign": "asset"},
+    "cd":                {"label": "Certificate of deposit",
+                                                      "group": "Savings",   "sign": "asset"},
+    "credit":            {"label": "Credit card",     "group": "Credit",    "sign": "liability"},
+}
+
+# Constrained fields, so a form renders a dropdown instead of a free-text box
+# and the stored values stay consistent enough to compute with.
+ACCOUNT_FIELD_CHOICES: Dict[str, list] = {
+    "compound": ["daily", "monthly", "quarterly", "annually"],
+}
+
+# Fields that are a rate expressed as a percent, so a UI can label them "%" and
+# a calculation knows to divide by 100 rather than guessing from the magnitude.
+ACCOUNT_RATE_FIELDS = {"apy", "apr"}
+
+
+def account_types_by_group() -> Dict[str, list]:
+    """Account types grouped for a picker, in a sensible order.
+
+    Returns {group_label: [(type_key, human_label), ...]}, skipping the blank
+    type — that is a state, not something you choose from a menu.
+    """
+    out: Dict[str, list] = {}
+    for key, meta in ACCOUNT_TYPE_META.items():
+        if not key:
+            continue
+        out.setdefault(meta["group"], []).append((key, meta["label"]))
+    return out
+
+
+def is_liability(account: Dict[str, Any]) -> bool:
+    """True when this account's balance is money OWED, not money held."""
+    meta = ACCOUNT_TYPE_META.get(str(account.get("type", "")).lower(), {})
+    return meta.get("sign") == "liability"
+
 
 # Every field any type can add, so a leftover from a previous type is spottable.
 _ALL_TYPE_FIELDS = {f for fields in ACCOUNT_TYPE_FIELDS.values() for f in fields}
@@ -69,7 +212,7 @@ def is_wrapped(blob: Any) -> bool:
     return isinstance(blob, dict) and ("finance_data" in blob or "accounts_data" in blob)
 
 
-def apply_account_type(account: Dict[str, Any]) -> Dict[str, Any]:
+def apply_account_type(account: Dict[str, Any], fill_defaults: bool = False) -> Dict[str, Any]:
     """Give an account exactly the fields its `type` calls for.
 
     Returns {'success', 'data', 'removed'} — `removed` carries any field dropped
@@ -100,8 +243,13 @@ def apply_account_type(account: Dict[str, Any]) -> Dict[str, Any]:
         if field in _ALL_TYPE_FIELDS and field not in type_fields:
             removed[field] = account.pop(field)
 
-    for field, default in type_fields.items():
-        account.setdefault(field, default)
+    # Defaults are OPT-IN. An account stores only the fields actually entered,
+    # so a savings account with no monthly fee simply has no `monthly_fee` key
+    # rather than a misleading 0.0 nobody typed. The form uses the defaults as
+    # starting values; the record does not inherit them.
+    if fill_defaults:
+        for field, default in type_fields.items():
+            account.setdefault(field, default)
 
     return {"success": True, "data": account, "removed": removed}
 
@@ -136,11 +284,53 @@ def normalize_blob(blob: Any) -> Dict[str, Any]:
         if not isinstance(finance.get(key), list):
             finance[key] = list(empty)
 
-    if not isinstance(accounts, dict) or not accounts:
-        accounts = dict(BLANK_ACCOUNT)
-    apply_account_type(accounts)
-
+    accounts = _normalize_accounts(accounts)
     return {"finance_data": finance, "accounts_data": accounts}
+
+
+def _normalize_accounts(accounts: Any) -> list:
+    """Coerce the accounts half into a clean list of account records.
+
+    Handles three shapes:
+      * a list          — the current one
+      * a single dict   — the shape accounts_data had when it was one account;
+                          promoted to a one-item list, or dropped if it was
+                          still the untouched blank
+      * anything else   — treated as no accounts
+
+    Ids are repaired here rather than trusted, because a transfer will point at
+    one and a duplicate or missing id would silently retarget it.
+    """
+    if isinstance(accounts, dict):
+        # Legacy single-account shape. An untouched blank carries nothing worth
+        # keeping, so it becomes an empty list rather than a phantom account.
+        meaningful = accounts.get("type") or accounts.get("name")             or accounts.get("expenses") or accounts.get("deposits")
+        accounts = [accounts] if meaningful else []
+    if not isinstance(accounts, list):
+        return []
+
+    cleaned, seen = [], set()
+    for entry in accounts:
+        if not isinstance(entry, dict):
+            continue
+        acc = dict(entry)
+        for field, default in BLANK_ACCOUNT.items():
+            if field not in acc:
+                acc[field] = list(default) if isinstance(default, list) else default
+        for list_field in ("expenses", "deposits"):
+            if not isinstance(acc.get(list_field), list):
+                acc[list_field] = []
+        acc["type"] = str(acc.get("type") or "").lower()
+        # Strip fields belonging to a different type, but do NOT fill defaults:
+        # an account keeps only what was actually entered.
+        apply_account_type(acc)
+        aid = acc.get("id")
+        if not isinstance(aid, int) or aid in seen:
+            aid = next_account_id(cleaned)
+            acc["id"] = aid
+        seen.add(aid)
+        cleaned.append(acc)
+    return cleaned
 
 
 class StorageBackend(ABC):

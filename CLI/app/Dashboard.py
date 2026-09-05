@@ -13,7 +13,7 @@ import json as _json
 from datetime import datetime as _dtm
 
 # Must run before any other Streamlit call (set_page_config + theme + nav).
-page_setup("GRID Expense Tracker", "💸")
+page_setup("Finance Kit", "💸")
 init_st()
 render_sidebar()
 

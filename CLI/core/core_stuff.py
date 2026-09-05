@@ -13,12 +13,12 @@ import requests
 from typing import Optional,List,Dict,Any
 # Pluggable storage backends (local JSON file vs. hosted multi-tenant DB)
 try:
-    from .storage import (StorageBackend, JsonStore, BLANK_FINANCE, BLANK_ACCOUNT,
+    from .storage import (StorageBackend, JsonStore, BLANK_FINANCE, BLANK_ACCOUNT, BLANK_ACCOUNTS,
                           ACCOUNT_TYPE_FIELDS,
                           apply_account_type as _apply_account_type,
                           normalize_blob)
 except ImportError:  # allow running as a top-level script / flat import
-    from storage import (StorageBackend, JsonStore, BLANK_FINANCE, BLANK_ACCOUNT,
+    from storage import (StorageBackend, JsonStore, BLANK_FINANCE, BLANK_ACCOUNT, BLANK_ACCOUNTS,
                          ACCOUNT_TYPE_FIELDS,
                          apply_account_type as _apply_account_type,
                          normalize_blob)
@@ -40,7 +40,7 @@ class ExpenseTracker():
     # The shapes and the account types live in storage.py, so the file format is
     # defined in one place. These keep the old names working.
     BLANK_DATA = BLANK_FINANCE
-    BLANK_ACCOUNTS = BLANK_ACCOUNT
+    BLANK_ACCOUNTS = BLANK_ACCOUNTS
     ACCOUNT_TYPE_FIELDS = ACCOUNT_TYPE_FIELDS
 
     # Set the default fields that belong to an account's type
@@ -63,7 +63,7 @@ class ExpenseTracker():
     def write_file(self,data:dict,account_data:dict=None) -> None:
         # Reuse the accounts from the last read when only the finance half is being saved
         if account_data is None:
-            account_data = self._accounts if self._accounts is not None else dict(BLANK_ACCOUNT)
+            account_data = self._accounts if self._accounts is not None else []
         self._accounts = account_data
         # Persist via the storage backend (local JSON file or hosted DB)
         self.store.write({'finance_data':data,'accounts_data':account_data})
@@ -129,12 +129,15 @@ class ExpenseTracker():
     # Backbone of converting currency function
     def convert_currency(self,price:float,from_curr:str,to_curr:str) -> Dict[bool,Any]:
         try:
-            # API url
-            url = f"https://api.frankfurter.app/latest?from={from_curr.upper()}&to={to_curr.upper()}"
-            response = requests.get(url,timeout=5)
-            # Get rate to return the improved price
-            rate = response.json()['rates'][to_curr.upper()]
-            return {'success':True,'rate':rate*price}
+            if not from_curr == to_curr:
+                # API url
+                url = f"https://api.frankfurter.app/latest?from={from_curr.upper()}&to={to_curr.upper()}"
+                response = requests.get(url,timeout=5)
+                # Get rate to return the improved price
+                rate = response.json()['rates'][to_curr.upper()]
+                return {'success':True,'rate':rate*price}
+            else:
+                return {'success':False,'message':'Cannot convert a currency to itself'}
         # If cannot connection to the API website the return None
         except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError):
             return {'success':False,'message':'Could not connect to the Conversion API'}
@@ -1111,7 +1114,7 @@ class ExpenseTracker():
         return {'success': True, 'message': f'Restored from {backup_file}'}
 
 
-__version__ = "v1.5"
+__version__ = "v1.6"
 
 # For getting web pages such as the GitHub page for this project
 import requests

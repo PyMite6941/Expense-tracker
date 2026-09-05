@@ -2,7 +2,16 @@ import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
-from jose import jwt, JWTError
+# PyJWT, not python-jose. python-jose 3.3.0 carries three advisories that all
+# land on this exact code path — algorithm confusion (PYSEC-2024-232), a JWE
+# decompression bomb (PYSEC-2024-233), and a JWE decrypt DoS with NO fix
+# available (PYSEC-2025-185) — and it drags in `ecdsa`, which has an unfixed
+# Minerva timing attack (PYSEC-2026-1325). PyJWT depends only on `cryptography`.
+#
+# The swap is safe for keys already issued: HS256 is a wire standard, so a token
+# minted by python-jose verifies byte-identically under PyJWT and vice versa.
+import jwt
+from jwt import PyJWTError as JWTError
 
 log = logging.getLogger(__name__)
 
@@ -121,7 +130,44 @@ def create_license_jwt(email: str, tier: str = "pro") -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def verify_license_jwt(token: str) -> dict | None:
+    """Decode a licence, or None if it is not a valid one.
+
+    `algorithms` is pinned to a single value on purpose: without it a caller
+    could present a token whose header names a weaker algorithm and have it
+    honoured. Signature, expiry and format are all checked here.
+    """
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         return None
+
+
+def describe_license_error(token: str) -> str:
+    """Why a licence was refused, in words a buyer can act on.
+
+    Kept separate from verify_license_jwt so the happy path stays a plain
+    yes/no. Never echoes the token or anything derived from the secret.
+    """
+    if not isinstance(token, str) or not token.strip():
+        return "No licence key was provided."
+    raw = token.strip()
+    if raw.count(".") != 2:
+        return ("That does not look like a licence key. A key is three "
+                "dot-separated parts — check you copied the whole thing.")
+    try:
+        jwt.decode(raw, SECRET_KEY, algorithms=[ALGORITHM])
+        return ""
+    except jwt.ExpiredSignatureError:
+        return "This licence key has expired. Renew it to carry on."
+    except jwt.ImmatureSignatureError:
+        return "This licence key is not valid yet."
+    except jwt.InvalidAlgorithmError:
+        return "This licence key uses an unsupported algorithm and was rejected."
+    except jwt.InvalidSignatureError:
+        return ("This licence key failed its signature check — it was not issued "
+                "by us, or it has been altered.")
+    except jwt.DecodeError:
+        return ("This licence key is malformed and could not be read. Copy it "
+                "again from your purchase email, with no extra spaces.")
+    except JWTError:
+        return "This licence key is not valid."

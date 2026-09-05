@@ -6,7 +6,10 @@ from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+# PyJWT rather than python-jose — see auth-service/jwt_utils.py for why.
+# Wire-compatible, so licences issued before the swap still verify.
+import jwt
+from jwt import PyJWTError as JWTError
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded

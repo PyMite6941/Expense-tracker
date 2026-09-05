@@ -27,7 +27,7 @@ from CLI.core.storage import JsonStore, PostgresStore, normalize_blob
 from CLI.core.tenancy import (AuthUser, NoEntitlementError, claim_and_resolve_org,
                               create_org, get_role)
 
-page_setup("Settings — GRID Expense Tracker", "⚙️")
+page_setup("Settings — Finance Kit", "⚙️")
 init_st()
 
 render_sidebar()

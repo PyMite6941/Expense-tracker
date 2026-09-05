@@ -10,7 +10,7 @@
 // which runs the Base-USDC redeem flow and returns the JWT to paste back here.
 // Override at build time with VITE_PURCHASE_URL.
 export const PURCHASE_URL =
-  import.meta.env.VITE_PURCHASE_URL || 'https://grid-store.pages.dev/codes'
+  import.meta.env.VITE_PURCHASE_URL || 'https://grid-store.pages.dev/projects'
 
 export const TIERS = {
   free: { label: 'Free', price: '$0', blurb: 'Local tracking, charts & exports' },

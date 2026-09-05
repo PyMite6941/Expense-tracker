@@ -1,7 +1,7 @@
 # For the web ui setup
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 # For proper importing stuff
 import os
 import sys
@@ -41,6 +41,54 @@ with col3:
 st.divider()
 
 # Expense breakdown by category
+# Pie charts are Plotly, not matplotlib. Streamlit has no native pie, and a
+# matplotlib one is a flat PNG — no hover, no tooltip, no way to isolate a
+# slice. Plotly gives all three for free and follows the app's light/dark theme.
+PIE_COLORS = ['#6ea8fe', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#22d3ee', '#fb923c']
+
+
+def _pie(values, labels, title, currency_symbol='$'):
+    """A donut with hover highlighting, tooltips and click-to-isolate slices."""
+    total = float(sum(values))
+    fig = go.Figure(go.Pie(
+        labels=list(labels),
+        values=list(values),
+        hole=0.5,
+        sort=True,
+        direction='clockwise',
+        marker=dict(colors=PIE_COLORS[:len(values)],
+                    line=dict(color='rgba(0,0,0,0)', width=2)),
+        # Hovering lifts the slice out of the ring — the highlight effect.
+        pull=[0] * len(values),
+        hovertemplate=(f'<b>%{{label}}</b><br>{currency_symbol}%{{value:,.2f}}'
+                       '<br>%{percent}<extra></extra>'),
+        texttemplate='%{percent}',
+        textposition='inside',
+        insidetextfont=dict(size=11, color='white'),
+    ))
+    fig.update_traces(
+        # Plotly's own hover highlight: the hovered slice grows a border.
+        marker_line_width=[0] * len(values),
+        hoverlabel=dict(font_size=12),
+    )
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13), x=0.5, xanchor='center'),
+        showlegend=True,
+        legend=dict(orientation='v', x=1.0, xanchor='left', y=0.5,
+                    font=dict(size=10)),
+        margin=dict(l=0, r=0, t=34, b=0),
+        height=260,
+        autosize=True,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        # The running total sits in the hole, so the chart says something even
+        # before you hover.
+        annotations=[dict(text=f'{currency_symbol}{total:,.0f}',
+                          x=0.5, y=0.5, font=dict(size=15), showarrow=False)],
+    )
+    return fig
+
+
 expense_by_category = {}
 for expense in expenses:
     category = expense['tags']
@@ -55,14 +103,13 @@ if expense_by_category:
         'Amount': list(expense_by_category.values())
     }).sort_values('Amount', ascending=False)
 
-    # Display table
-    st.dataframe(df, hide_index=True)
-
-    # Create pie chart
-    fig, ax = plt.subplots()
-    ax.pie(df['Amount'], labels=df['Category'], autopct='%1.1f%%')
-    ax.set_title('Expense Distribution')
-    st.pyplot(fig)
+    # Table and chart side by side — the chart no longer needs a full row.
+    col_table, col_chart = st.columns([3, 2])
+    with col_table:
+        st.dataframe(df, hide_index=True, use_container_width=True)
+    with col_chart:
+        st.plotly_chart(_pie(df['Amount'], df['Category'], 'Expense distribution'),
+                        config={'displayModeBar': False})
 else:
     st.write("No expenses recorded for this month.")
 
@@ -83,14 +130,12 @@ if income_by_source:
         'Amount': list(income_by_source.values())
     }).sort_values('Amount', ascending=False)
 
-    # Display table
-    st.dataframe(df, hide_index=True)
-
-    # Create pie chart
-    fig, ax = plt.subplots()
-    ax.pie(df['Amount'], labels=df['Source'], autopct='%1.1f%%')
-    ax.set_title('Income Distribution')
-    st.pyplot(fig)
+    col_table, col_chart = st.columns([3, 2])
+    with col_table:
+        st.dataframe(df, hide_index=True, use_container_width=True)
+    with col_chart:
+        st.plotly_chart(_pie(df['Amount'], df['Source'], 'Income distribution'),
+                        config={'displayModeBar': False})
 else:
     st.write("No income recorded for this month.")
 
@@ -116,26 +161,19 @@ if len(all_months) > 1:
 
     df = pd.DataFrame(monthly_data)
 
-    # Display table
-    st.dataframe(df, hide_index=True)
+    st.dataframe(df, hide_index=True, use_container_width=True)
 
-    # Create bar chart
-    fig, ax = plt.subplots()
-    df.plot(x='Month', y=['Expenses', 'Income'], kind='bar', ax=ax)
-    ax.set_title('Monthly Expenses vs Income')
-    ax.set_ylabel('Amount ($)')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    st.pyplot(fig)
-
-    # Create savings trend chart
-    fig, ax = plt.subplots()
-    df.plot(x='Month', y='Savings', kind='line', marker='o', ax=ax)
-    ax.set_title('Monthly Savings Trend')
-    ax.set_ylabel('Savings ($)')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    st.pyplot(fig)
+    # Native charts: these were full-width matplotlib PNGs ~760px tall each,
+    # which pushed the export controls off the screen. Native ones are compact,
+    # interactive, and follow the light/dark theme.
+    chart_df = df.set_index('Month')
+    col_bars, col_line = st.columns(2)
+    with col_bars:
+        st.caption('Expenses vs income')
+        st.bar_chart(chart_df[['Expenses', 'Income']], height=260)
+    with col_line:
+        st.caption('Savings trend')
+        st.line_chart(chart_df[['Savings']], height=260)
 
 # Export options
 st.subheader('Export Data')

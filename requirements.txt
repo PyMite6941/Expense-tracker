@@ -18,8 +18,12 @@ streamlit>=1.57,<2                  # verified 1.57.0
 # ── Data layer ───────────────────────────────────────────────────────────────
 # pandas: CSV import/export and recurring-expense detection in core_stuff.py
 pandas>=2.3,<4                      # verified 3.0.2
-# matplotlib: core_stuff.create_graphs + the Monthly Summary page charts
+# matplotlib: core_stuff.create_graphs (the CLI charts). No longer used by the
+# Streamlit UI — those are native Streamlit and Plotly now.
 matplotlib>=3.10,<4                 # verified 3.10.7
+# plotly: the interactive pie/donut charts. Streamlit has no native pie, and a
+# matplotlib one is a flat PNG with no hover, tooltip or click-to-isolate.
+plotly>=6.0,<7                      # verified 6.8.0
 # reportlab: core_stuff.export_to_pdf
 reportlab>=4.4,<5                   # verified 4.4.10
 # requests: currency conversion, update check, and all cloud backend calls

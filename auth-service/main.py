@@ -11,7 +11,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import firestore
 from google.api_core.exceptions import AlreadyExists, GoogleAPIError
-from jwt_utils import create_license_jwt, verify_license_jwt
+from jwt_utils import (create_license_jwt, verify_license_jwt,
+                       describe_license_error)
 from onchain import verify_usdc_payment
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -221,7 +222,7 @@ async def redeem(request: Request):
 
 def _license_html(token: str, tier_label: str) -> str:
     return f"""
-<p>Thanks for subscribing to GRID {tier_label}!</p>
+<p>Thanks for subscribing to Finance Kit {tier_label}!</p>
 <p><strong>Your 31-day license key:</strong></p>
 <pre style="background:#111;padding:16px;border-radius:8px;font-size:13px;word-break:break-all">{token}</pre>
 <p>Paste it into the <strong>Pro Features</strong> page in the Expense Tracker app to activate.</p>
@@ -237,9 +238,9 @@ def _send_license_email(to_email: str, token: str, tier: str) -> bool:
     EMAIL_PROVIDER picks the transport: 'smtp' (Gmail/any SMTP via
     SMTP_USER/SMTP_PASS) or 'resend' (Resend API)."""
     tier_label = "Max" if tier == "max" else "Pro"
-    subject = f"Your GRID {tier_label} License Key"
+    subject = f"Your Finance Kit {tier_label} License Key"
     html = _license_html(token, tier_label)
-    text = (f"Your GRID {tier_label} license key (expires in 31 days):\n\n{token}\n\n"
+    text = (f"Your Finance Kit {tier_label} license key (expires in 31 days):\n\n{token}\n\n"
             "Paste it into the Pro Features page in the Expense Tracker app.")
     try:
         if EMAIL_PROVIDER == "smtp":
@@ -280,11 +281,30 @@ def _send_license_email(to_email: str, token: str, tier: str) -> bool:
 @app.post("/validate")
 @limiter.limit("30/minute")
 async def validate_token(request: Request):
-    body = await request.json()
+    # A malformed body is the user's problem to see, not a 500. json() raises on
+    # anything that is not JSON, and .get on a non-dict would raise too.
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400,
+                            detail="Request body must be JSON: {\"token\": \"...\"}")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400,
+                            detail="Request body must be a JSON object.")
+
     token = body.get("token", "")
+    if not isinstance(token, str):
+        raise HTTPException(status_code=400, detail="`token` must be a string.")
+
     claims = verify_license_jwt(token)
     if not claims:
-        raise HTTPException(status_code=401, detail="Invalid or expired license key")
+        # Say WHY. "Invalid or expired" left a buyer with a mis-pasted key and a
+        # buyer with a lapsed subscription staring at the same sentence, with
+        # nothing to act on. describe_license_error never leaks anything about
+        # the signing secret — it only reports which check failed.
+        raise HTTPException(status_code=401,
+                            detail=describe_license_error(token) or
+                                   "This licence key is not valid.")
     # .get(), not [] — a legacy token issued before a claim existed would
     # otherwise raise KeyError and surface as a 500 instead of a clean answer.
     return {

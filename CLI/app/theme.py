@@ -28,6 +28,7 @@ BAD = "#ef4444"
 # Paths are relative to the entrypoint dir (CLI/app/).
 PAGES = [
     ("Dashboard.py", "Overview", "🏠"),
+    ("pages/Accounts.py", "Accounts", "🏦"),
     ("pages/Monthly Summary.py", "Monthly", "📅"),
     ("pages/Recurring Expenses.py", "Recurring", "🔁"),
     ("pages/Pro Features.py", "Pro", "✨"),
@@ -186,7 +187,7 @@ def inject_css(hide_sidebar_nav: bool = False) -> None:
         st.markdown(_HIDE_SIDEBAR_NAV, unsafe_allow_html=True)
 
 
-def page_setup(title: str = "GRID Expense Tracker", icon: str = "💸",
+def page_setup(title: str = "Finance Kit", icon: str = "💸",
                layout: str = "wide", nav: bool = True) -> None:
     """Call FIRST on every page. Sets config, injects the theme, draws the nav.
 
@@ -206,8 +207,10 @@ def page_setup(title: str = "GRID Expense Tracker", icon: str = "💸",
         pass  # already configured by an earlier call on this run
     inject_css(hide_sidebar_nav=nav)
     render_header()
-    if nav:
-        render_nav()
+    # No top nav bar. The sidebar already carries every link, and showing both
+    # meant the same seven destinations twice on every page — one of them had
+    # to go, and the sidebar is the one that also carries live state.
+    # render_nav() is kept below for any surface that has no sidebar.
 
 
 def render_sidebar(active: str = None) -> None:
@@ -226,7 +229,7 @@ def render_sidebar(active: str = None) -> None:
     with st.sidebar:
         st.markdown(
             '<div class="grid-side-brand"><div class="mark"></div>'
-            '<div class="name">GRID</div></div>',
+            '<div class="name">Finance Kit</div></div>',
             unsafe_allow_html=True,
         )
 
@@ -326,7 +329,7 @@ def render_header(mode: str = None) -> None:
         label, cls = ("Hosted", "hosted") if hosted else ("Local", "local")
     st.markdown(
         f'<div class="grid-header"><div class="mark"></div>'
-        f'<div class="name">GRID Expense Tracker</div>'
+        f'<div class="name">Finance Kit</div>'
         f'<div class="badge {cls}">{label}</div></div>',
         unsafe_allow_html=True,
     )
@@ -434,7 +437,7 @@ def _license_url() -> str:
         from CLI.app.config import LICENSE_STORE_URL
         return LICENSE_STORE_URL
     except Exception:
-        return "https://grid-store.pages.dev/codes"
+        return "https://grid-store.pages.dev/projects"
 
 
 def _store_url() -> str:

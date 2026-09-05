@@ -40,4 +40,4 @@ DATABASE_URL = os.getenv("ET_DATABASE_URL") or os.getenv("DATABASE_URL")
 #                   flow and hands back the JWT you paste into Pro Features
 # ---------------------------------------------------------------------------
 STORE_URL = os.getenv("GRID_STORE_URL", "https://grid-store.pages.dev")
-LICENSE_STORE_URL = os.getenv("GRID_LICENSE_URL", f"{STORE_URL}/codes")
+LICENSE_STORE_URL = os.getenv("GRID_LICENSE_URL", f"{STORE_URL}/projects")

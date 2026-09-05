@@ -8,8 +8,15 @@ uvicorn[standard]>=0.29.0,<1.0.0
 # FastAPI keeps ownership of the compatible range — do not add bounds here.
 starlette
 
-# ── Licence signing + rate limiting ──────────────────────────────────────────
-python-jose[cryptography]>=3.3.0,<4.0.0
+# ── Licence signing + rate limiting ─────────────────────────────────────
+# PyJWT, NOT python-jose. python-jose 3.3.0 has three advisories on this exact
+# path (PYSEC-2024-232 algorithm confusion, PYSEC-2024-233 JWE bomb,
+# PYSEC-2025-185 JWE decrypt DoS with no fix) and depends on `ecdsa`, which has
+# an unfixed Minerva timing attack (PYSEC-2026-1325). PyJWT needs only
+# `cryptography`. HS256 is wire-identical, so licences already issued still verify.
+PyJWT>=2.10,<3                          # verified 2.12.1
+# Pinned above the chain-verification and OpenSSL advisories in 48.x.
+cryptography>=50.0
 slowapi>=0.1.9,<1.0.0
 
 # ── Licence ledger ───────────────────────────────────────────────────────────
@@ -19,7 +26,8 @@ google-cloud-firestore>=2.13.0,<3.0.0
 resend>=2.0.0,<3.0.0
 
 # ── On-chain payment verification (onchain.py) ───────────────────────────────
-requests>=2.31.0,<3.0.0
+requests>=2.32.0,<3.0.0
+urllib3>=2.7
 
 # ── Manual key issuing ───────────────────────────────────────────────────────
 # gen_code.py does `from dotenv import load_dotenv` at module scope, so running
