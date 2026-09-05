@@ -62,6 +62,25 @@ comment on column organizations.accounts_enc is
 alter table organizations
   add column if not exists enc_key_version integer not null default 1;
 
+
+-- Encrypted rows leave the plaintext columns empty, so the NOT NULL constraints
+-- on them have to go. Nothing enforced by them is lost: the values now live
+-- inside `enc`, and the app validates them before they are encrypted.
+alter table expenses      alter column price    drop not null,
+                          alter column currency drop not null;
+alter table income        alter column amount   drop not null,
+                          alter column currency drop not null;
+alter table budgets       alter column category drop not null,
+                          alter column amount   drop not null;
+alter table subscriptions alter column name     drop not null,
+                          alter column price    drop not null;
+alter table goals         alter column name     drop not null,
+                          alter column amount   drop not null;
+alter table assets        alter column name     drop not null,
+                          alter column value    drop not null;
+alter table liabilities   alter column name     drop not null,
+                          alter column balance  drop not null;
+
 -- ---------------------------------------------------------------------------
 -- AFTER verifying that reads come back correct with ET_ENCRYPTION_KEY set,
 -- drop the plaintext. Left commented because it is irreversible and should be

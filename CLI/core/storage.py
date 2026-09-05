@@ -455,9 +455,13 @@ def _build_read_sql() -> str:
         "'version', (select data_version from organizations where id = %(org)s)",
         "'accounts', (select coalesce(accounts_data, '{}'::jsonb) "
         "from organizations where id = %(org)s)",
+        "'accounts_enc', (select accounts_enc from organizations where id = %(org)s)",
     ]
     for json_key, (table, fields) in _TABLE_SPEC.items():
-        cols = ", ".join(["id"] + [db for _, db in fields])
+        # `enc` comes back too: a row written with encryption on has its
+        # values there and NULL in the typed columns. Both shapes are read
+        # so a database can be migrated without downtime.
+        cols = ", ".join(["id", "enc"] + [db for _, db in fields])
         parts.append(
             f"'{json_key}', (select coalesce(jsonb_agg(to_jsonb(x) order by x.id), '[]'::jsonb) "
             f"from (select {cols} from {table} where org_id = %(org)s) x)"
@@ -524,6 +528,47 @@ class PostgresStore(StorageBackend):
             self._conn.close()
         self._conn = None
 
+    # -- encryption -----------------------------------------------------------
+
+    @staticmethod
+    def _enc_on() -> bool:
+        """Whether at-rest encryption is configured for this deployment."""
+        try:
+            from .secure_store import encryption_enabled
+        except ImportError:
+            from secure_store import encryption_enabled
+        return encryption_enabled()
+
+    def _aad(self, table: str) -> str:
+        """Context bound into every ciphertext.
+
+        Table plus org, NOT the row id: an identity id does not exist until
+        after the INSERT that would need it, and binding org+table already stops
+        the attacks that matter — lifting a row into another tenant, or into a
+        different table. Reordering rows inside your own org is not an attack.
+        """
+        return f"{table}:{self.org_id}"
+
+    def _decode_row(self, raw: dict, table: str, fields) -> dict:
+        """One stored row -> its field payload.
+
+        Prefers `enc`. Falls back to the typed columns so rows written before
+        encryption was switched on keep loading.
+        """
+        blob = raw.get("enc")
+        if blob:
+            try:
+                from .secure_store import decrypt_row
+            except ImportError:
+                from secure_store import decrypt_row
+            # psycopg hands bytea back as memoryview/bytes; via jsonb it is a
+            # \x-prefixed hex string.
+            if isinstance(blob, str):
+                blob = bytes.fromhex(blob[2:] if blob.startswith("\\x") else blob)
+            payload = decrypt_row(blob, aad=self._aad(table))
+            return {jf: payload.get(jf) for jf, _db in fields}
+        return {jf: raw.get(db) for jf, db in fields}
+
     # -- read -----------------------------------------------------------------
 
     @staticmethod
@@ -571,16 +616,30 @@ class PostgresStore(StorageBackend):
                 items, snap = [], {}
                 for r in raw.get(json_key) or []:
                     rid = r["id"]
-                    payload = {jf: r.get(db) for jf, db in fields}
+                    payload = self._decode_row(r, _table, fields)
                     items.append({"id": rid, **payload})
                     snap[rid] = payload
                 data[json_key] = items
                 snapshot[json_key] = snap
             self._snapshot = snapshot
-            accounts = raw.get("accounts")
+            # Accounts hold bank names, balances and rates, so they are
+            # encrypted alongside everything else. accounts_data remains for
+            # rows written before encryption was switched on.
+            enc_accounts = raw.get("accounts_enc")
+            if enc_accounts:
+                try:
+                    from .secure_store import decrypt_row
+                except ImportError:
+                    from secure_store import decrypt_row
+                blob = enc_accounts
+                if isinstance(blob, str):
+                    blob = bytes.fromhex(blob[2:] if blob.startswith("\\x") else blob)
+                accounts = decrypt_row(blob, aad=self._aad("organizations")).get("accounts", [])
+            else:
+                accounts = raw.get("accounts")
             return {
                 "finance_data": data,
-                "accounts_data": accounts if isinstance(accounts, dict) else {},
+                "accounts_data": accounts if isinstance(accounts, (dict, list)) else {},
             }
 
         return self._session(_do)
@@ -591,10 +650,10 @@ class PostgresStore(StorageBackend):
         raw = cur.fetchone()[0]
         return {
             json_key: {
-                r["id"]: {jf: r.get(db) for jf, db in fields}
+                r["id"]: self._decode_row(r, table, fields)
                 for r in (raw.get(json_key) or [])
             }
-            for json_key, (_t, fields) in _TABLE_SPEC.items()
+            for json_key, (table, fields) in _TABLE_SPEC.items()
         }
 
     # -- write ----------------------------------------------------------------
@@ -605,6 +664,12 @@ class PostgresStore(StorageBackend):
         # Unwrap before anything touches the diff — see _finance_half().
         accounts = self._accounts_half(data)
         data = self._finance_half(data)
+        encrypting = self._enc_on()
+        if encrypting:
+            try:
+                from .secure_store import encrypt_row as _encrypt_row
+            except ImportError:
+                from secure_store import encrypt_row as _encrypt_row
 
         def _do(conn):
             with conn.cursor() as cur:
@@ -630,11 +695,21 @@ class PostgresStore(StorageBackend):
                         (self.org_id, self._version),
                     )
                 else:
-                    cur.execute(
-                        "update organizations set data_version = data_version + 1, "
-                        "accounts_data = %s where id = %s and data_version = %s",
-                        (Json(accounts), self.org_id, self._version),
-                    )
+                    if encrypting:
+                        cur.execute(
+                            "update organizations set data_version = data_version + 1, "
+                            "accounts_enc = %s, accounts_data = '{}'::jsonb "
+                            "where id = %s and data_version = %s",
+                            (_encrypt_row({"accounts": accounts},
+                                          aad=self._aad("organizations")),
+                             self.org_id, self._version),
+                        )
+                    else:
+                        cur.execute(
+                            "update organizations set data_version = data_version + 1, "
+                            "accounts_data = %s where id = %s and data_version = %s",
+                            (Json(accounts), self.org_id, self._version),
+                        )
                 if cur.rowcount == 0:
                     raise ConcurrentModificationError(
                         f"org {self.org_id} was modified by another user since it was "
@@ -674,13 +749,24 @@ class PostgresStore(StorageBackend):
 
                     # Batched multi-row INSERT ... RETURNING id (one round trip).
                     if inserts:
-                        col_list = ", ".join(["org_id", "created_by", *db_cols])
-                        tuple_sql = "(" + ", ".join(["%s"] * (2 + len(db_cols))) + ")"
-                        params = []
-                        for p in inserts:
-                            params.extend(
-                                [self.org_id, self.created_by, *[p[jf] for jf, _ in fields]]
-                            )
+                        # With encryption on, values go into `enc` and the typed
+                        # columns are left NULL (migration 005 drops their NOT
+                        # NULL). With it off, behaviour is exactly as before.
+                        if encrypting:
+                            col_list = ", ".join(["org_id", "created_by", "enc"])
+                            tuple_sql = "(%s, %s, %s)"
+                            params = []
+                            for p in inserts:
+                                params.extend([self.org_id, self.created_by,
+                                               _encrypt_row(p, aad=self._aad(table))])
+                        else:
+                            col_list = ", ".join(["org_id", "created_by", *db_cols])
+                            tuple_sql = "(" + ", ".join(["%s"] * (2 + len(db_cols))) + ")"
+                            params = []
+                            for p in inserts:
+                                params.extend(
+                                    [self.org_id, self.created_by, *[p[jf] for jf, _ in fields]]
+                                )
                         cur.execute(
                             f"insert into {table} ({col_list}) values "
                             + ", ".join([tuple_sql] * len(inserts))
@@ -691,11 +777,20 @@ class PostgresStore(StorageBackend):
                             audit_rows.append(("create", table, new_id, None, p))
 
                     if updates:
-                        set_clause = ", ".join(f"{db} = %s" for db in db_cols)
-                        cur.executemany(
-                            f"update {table} set {set_clause} where id = %s and org_id = %s",
-                            updates,
-                        )
+                        if encrypting:
+                            cur.executemany(
+                                f"update {table} set enc = %s where id = %s and org_id = %s",
+                                [(_encrypt_row(
+                                    {jf: row[i] for i, (jf, _) in enumerate(fields)},
+                                    aad=self._aad(table)), row[-2], row[-1])
+                                 for row in updates],
+                            )
+                        else:
+                            set_clause = ", ".join(f"{db} = %s" for db in db_cols)
+                            cur.executemany(
+                                f"update {table} set {set_clause} where id = %s and org_id = %s",
+                                updates,
+                            )
 
                     gone = [i for i in existing if i not in seen]
                     if gone:
@@ -710,11 +805,25 @@ class PostgresStore(StorageBackend):
                 if audit_rows:
                     tuple_sql = "(" + ", ".join(["%s"] * 7) + ")"
                     params = []
+                    def _audit_payload(value, entity_table):
+                        # The audit trail stores the BEFORE and AFTER of every
+                        # field. Left as plain jsonb it would hold a readable
+                        # copy of everything the `enc` column encrypts, which
+                        # would make the encryption pointless. So it is wrapped
+                        # the same way, in a shape that is obviously ciphertext.
+                        if value is None:
+                            return None
+                        if not encrypting:
+                            return Json(value)
+                        import base64 as _b64
+                        return Json({"enc": _b64.b64encode(
+                            _encrypt_row(value, aad=self._aad(entity_table))).decode()})
+
                     for action, entity, entity_id, before, after in audit_rows:
                         params.extend([
                             self.org_id, self.created_by, action, entity, entity_id,
-                            Json(before) if before is not None else None,
-                            Json(after) if after is not None else None,
+                            _audit_payload(before, entity),
+                            _audit_payload(after, entity),
                         ])
                     cur.execute(
                         "insert into audit_log (org_id, actor, action, entity, entity_id, before, after) "
