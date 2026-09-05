@@ -52,7 +52,8 @@ def _saved_account():
 
 
 # ══════════════════════════════════════════════════════════════════════════
-tab_account, tab_mode, tab_export = st.tabs(["Account", "Storage", "Export & Backup"])
+tab_account, tab_mode, tab_privacy, tab_export = st.tabs(
+    ["Account", "Storage", "Privacy & encryption", "Export & Backup"])
 
 # ── ACCOUNT ──────────────────────────────────────────────────────────────
 with tab_account:
@@ -199,6 +200,103 @@ with tab_mode:
                 st.rerun()
             except Exception as exc:
                 st.error(f"Could not switch: {exc}")
+
+# ── PRIVACY & ENCRYPTION ─────────────────────────────────────────────────
+with tab_privacy:
+    section("What leaves this machine",
+            "Written to match what the code actually does. If it says nothing "
+            "is sent, nothing is sent.")
+
+    st.markdown("**Running locally (free / self-hosted)**")
+    st.success(
+        "Your finances never leave this computer. Expenses, income, budgets, "
+        "goals, accounts — all of it lives in `data.json` here. Every figure on "
+        "the dashboard, including the forecast, the anomaly scan and net worth, "
+        "is calculated **on this machine**.",
+        icon="🔒",
+    )
+    st.caption(
+        "Those three used to be sent to the analytics server to be computed. "
+        "They are pure arithmetic and needed no server, so they were moved back "
+        "here — the data no longer goes anywhere to produce them."
+    )
+
+    st.divider()
+    st.markdown("**The one thing that is sent, and only when you ask**")
+    st.warning(
+        "**Ask About Your Finances** is the single feature that transmits your "
+        "records. Answering a question in plain English needs a language model, "
+        "and that model runs on a server. Pressing Ask sends a summary of your "
+        "expenses, income, budgets, subscriptions and goals to the AI provider "
+        "configured for this build.\n\n"
+        "Nothing is sent unless you press it. If you never use it, nothing "
+        "ever leaves.",
+        icon="🤖",
+    )
+
+    st.divider()
+    st.markdown("**Stored credentials**")
+    _cred_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", ".bot_config.json"))
+    _has_creds = os.path.exists(_cred_path)
+    try:
+        from CLI.core.secure_store import is_encrypted as _is_enc
+        import json as _json
+        _enc = _has_creds and _is_enc(_json.load(open(_cred_path, encoding="utf-8")))
+    except Exception:
+        _enc = False
+    if not _has_creds:
+        st.caption("No stored credentials yet. Phone Connect and Email Import "
+                   "save theirs encrypted when you configure them.")
+    elif _enc:
+        st.success("Your Gmail app password and bot tokens are **encrypted at "
+                   "rest** (AES-256-GCM). The key is held in a separate file, so "
+                   "neither one is useful on its own.", icon="🔑")
+    else:
+        st.warning("Credentials are still stored in plain text from an older "
+                   "build. Re-save them on Phone Connect or Email Import and "
+                   "they will be encrypted.", icon="⚠️")
+    st.caption(
+        "Being straight about the limit: the app has to decrypt these "
+        "unattended so the bots can run, so the key sits on this machine. That "
+        "protects the file if it is synced to OneDrive, lands in a backup, or "
+        "is committed by accident — it does not protect against someone who "
+        "already has your user account."
+    )
+
+    st.divider()
+    section("Server-side encryption",
+            "Applies only if you sign up for the hosted site.")
+    st.markdown(
+        "Using the hosted site is the **only** way any of your finances reach a "
+        "server for storage. It is opt-in: you create an account on the "
+        "**Account** tab and switch over on **Storage**. Until you do that, "
+        "there is no server copy of anything."
+    )
+    st.info(
+        "**Status: not yet enabled.** Hosted data is currently stored in the "
+        "database in readable form, protected by access control and the "
+        "provider's encryption of the disk underneath — not by encryption that "
+        "would stop the server itself reading it.\n\n"
+        "The intended design is that your data is encrypted **before it leaves "
+        "this machine**, with a key derived from your passphrase that is never "
+        "transmitted. The server would then hold ciphertext it cannot read.",
+        icon="🏗️",
+    )
+    with st.expander("What that will mean for the hosted features"):
+        st.markdown(
+            "Worth knowing before it ships, because it is a real trade:\n\n"
+            "- **Anything the server computes for you stops working on hosted "
+            "data.** It cannot total what it cannot read. Those calculations "
+            "move to your device, exactly as they already have locally.\n"
+            "- **Losing the passphrase means losing the data.** That is what "
+            "'the server cannot read it' means — there is no reset, because "
+            "there is no copy of the key to reset it with.\n"
+            "- **Sharing a workspace with a team** needs the key shared with "
+            "them, not with us.\n\n"
+            "Running locally sidesteps all of this: nothing is uploaded, so "
+            "there is nothing to encrypt."
+        )
 
 # ── EXPORT ───────────────────────────────────────────────────────────────
 with tab_export:

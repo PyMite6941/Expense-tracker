@@ -118,6 +118,21 @@ def _notice(notice):
         {'info': st.info, 'warning': st.warning, 'error': st.error}[kind](msg)
 
 
+def _has_feature(feature: str) -> bool:
+    """True when the activated licence covers this feature.
+
+    Checked against the claims decoded from the licence JWT, not by asking the
+    server — the pure-maths analytics run locally now, so there is no request
+    whose 403 could gate them.
+    """
+    return feature in (st.session_state.get('pro_features') or [])
+
+
+def _locked(feature_label: str, tier: str = 'Pro'):
+    """Render the paywall for a locally-computed feature."""
+    upsell(feature_label, tier)
+
+
 # Eight flat tabs was too many to scan. They're grouped into four, with the
 # originals nested underneath — every `with tab_*:` block below still works
 # because Streamlit containers render wherever they were created.
@@ -231,13 +246,12 @@ with tab_dashboard:
                 'assets': st.session_state.get('assets', []),
                 'liabilities': st.session_state.get('liabilities', []),
             }
-            if USE_LOCAL_BACKEND:
-                from backend.analytics import net_worth_snapshot
-                _nw = net_worth_snapshot(_nw_payload, convert_fn=st.session_state.tracker.convert_currency)
-            else:
-                with st.spinner('Calculating net worth…'):
-                    _resp = _backend_post('/net-worth', _nw_payload, token=st.session_state.get('pro_token'))
-                _nw = (_resp.json() if _resp.ok else {'success': False}) if _resp is not None else {'success': False}
+            # Computed HERE. This payload is the single most sensitive thing in
+            # the app — every expense, income, subscription, goal, asset and
+            # liability — and it was being POSTed in full to run arithmetic.
+            from backend.analytics import net_worth_snapshot
+            _nw = net_worth_snapshot(_nw_payload,
+                                     convert_fn=st.session_state.tracker.convert_currency)
             if _nw.get('success'):
                 _cur = _nw['base_currency']
                 _nw_cols = st.columns(4)
@@ -286,17 +300,14 @@ with tab_dashboard:
     section('Spending Forecast', 'Linear trend per category, projected to next month.')
     _fc_notice = None
     try:
-        if USE_LOCAL_BACKEND:
+        # Computed HERE. forecast_spending is pure maths — it was previously
+        # POSTed to Cloud Run along with every expense the user has.
+        if not _has_feature('budget_forecasting'):
+            _locked('Spending forecast')
+            _fc, _fc_notice = {}, True
+        else:
             from backend.analytics import forecast_spending
             _fc = forecast_spending(st.session_state.expenses)
-        else:
-            with st.spinner('Forecasting…'):
-                _resp = _backend_post('/forecast', {'expenses': st.session_state.expenses, 'base_currency': 'USD'},
-                                      token=st.session_state.get('pro_token'))
-            _fc, _fc_notice = _gated(_resp, 'Spending forecast')
-            if _fc_notice:
-                _notice(_fc_notice)
-            _fc = _fc or {}
         if _fc.get('success') and _fc.get('forecasts'):
             st.caption(f"Based on {_fc['based_on_months']} month(s) of history ({_fc['base_currency']} only)")
             _fc_cols = st.columns(3)
@@ -313,17 +324,13 @@ with tab_dashboard:
     section('Unusual Expenses', 'Transactions far from their category average.')
     _ad_notice = None
     try:
-        if USE_LOCAL_BACKEND:
+        # Computed HERE — see the forecast panel above.
+        if not _has_feature('anomaly_detection'):
+            _locked('Anomaly detection')
+            _ad, _ad_notice = {}, True
+        else:
             from backend.analytics import detect_anomalies
             _ad = detect_anomalies(st.session_state.expenses)
-        else:
-            with st.spinner('Scanning for outliers…'):
-                _resp = _backend_post('/detect-anomalies', {'expenses': st.session_state.expenses, 'z_threshold': 2.5},
-                                      token=st.session_state.get('pro_token'))
-            _ad, _ad_notice = _gated(_resp, 'Anomaly detection')
-            if _ad_notice:
-                _notice(_ad_notice)
-            _ad = _ad or {}
         if _ad.get('anomalies'):
             st.caption(f"{_ad['count']} statistically unusual expense(s) detected:")
             for _anom in _ad['anomalies']:

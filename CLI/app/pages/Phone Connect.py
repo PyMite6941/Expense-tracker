@@ -6,6 +6,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from CLI.app.streamlit_setup import init_st
+from CLI.core.secure_store import load_secure, save_secure
 from CLI.app.theme import page_setup, render_sidebar, upsell
 
 page_setup('Phone Connect', '📱')
@@ -32,17 +33,22 @@ _CONFIG_PATH = os.path.abspath(_CONFIG_PATH)
 
 
 def _load_cfg() -> dict:
-    try:
-        if os.path.exists(_CONFIG_PATH):
-            return json.loads(open(_CONFIG_PATH).read())
-    except Exception:
-        pass
-    return {}
+    """Read the bot/email config, decrypting it at rest.
+
+    A plaintext config from an older build still loads, and is re-saved
+    encrypted the next time anything is changed.
+    """
+    return load_secure(_CONFIG_PATH)
+
+
 
 
 def _save_cfg(cfg: dict) -> None:
-    with open(_CONFIG_PATH, 'w') as fh:
-        json.dump(cfg, fh, indent=2)
+    """Write the config ENCRYPTED. It holds a Gmail app password and the
+    Telegram/Discord bot tokens — it was previously plaintext JSON sitting in
+    the repo root."""
+    save_secure(_CONFIG_PATH, cfg)
+
 
 
 cfg = _load_cfg()
