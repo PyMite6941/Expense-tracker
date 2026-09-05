@@ -934,27 +934,108 @@ class ExpenseTracker():
         display_name = getattr(filename, 'name', filename)
         return {'success':True,'message':f'Imported {display_name} successfully'}
 
-    # Export expenses to a .csv file
-    def export_to_csv(self,listName:str,filename:str) -> Dict[str,Any]:
+    # How each list should be laid out when exported: (field, heading).
+    # Column ORDER and NAMES live here so a CSV and a PDF of the same list always
+    # agree, and so internal fields (id) never reach a customer-facing file.
+    EXPORT_COLUMNS = {
+        'expenses':           [('date','Date'),('purchased','Item'),('tags','Category'),
+                               ('price','Amount'),('currency','Currency'),('notes','Notes')],
+        'income':             [('date','Date'),('source','Source'),('amount','Amount'),
+                               ('currency','Currency'),('notes','Notes')],
+        'budget':             [('category','Category'),('amount','Monthly limit'),('currency','Currency')],
+        'subscriptions':      [('name','Subscription'),('price','Amount'),
+                               ('currency','Currency'),('startDate','Started')],
+        'goals':              [('name','Goal'),('amount','Target'),('monthContribution','Per month'),
+                               ('currency','Currency'),('startDate','Started')],
+        'recurring_expenses': [('purchased','Item'),('tags','Category'),
+                               ('amount','Amount'),('currency','Currency')],
+        'recurring_income':   [('source','Source'),('amount','Amount'),('currency','Currency')],
+        'assets':             [('name','Asset'),('type','Type'),('value','Value'),
+                               ('currency','Currency'),('notes','Notes')],
+        'liabilities':        [('name','Liability'),('type','Type'),('balance','Balance'),
+                               ('currency','Currency'),('interest_rate','Rate'),('notes','Notes')],
+    }
+
+    # Which field holds the money, per list - used for totals and alignment
+    EXPORT_AMOUNT_FIELD = {
+        'expenses':'price','income':'amount','budget':'amount','subscriptions':'price',
+        'goals':'amount','recurring_expenses':'amount','recurring_income':'amount',
+        'assets':'value','liabilities':'balance',
+    }
+
+    # Work out the columns for a list, falling back to whatever keys the rows
+    # actually have. The UNION of keys is used, not the first row's keys, so a
+    # row carrying an extra field is not silently dropped from the file.
+    def export_columns(self,listName:str,rows:list) -> list:
+        if listName in self.EXPORT_COLUMNS:
+            present = set()
+            for r in rows:
+                present.update(r.keys())
+            cols = [(f,h) for f,h in self.EXPORT_COLUMNS[listName] if f in present]
+            known = {f for f,_ in self.EXPORT_COLUMNS[listName]}
+            extra = [k for k in sorted(present - known) if k != 'id']
+            return cols + [(k, k.replace('_',' ').capitalize()) for k in extra]
+        keys = []
+        for r in rows:
+            for k in r:
+                if k != 'id' and k not in keys:
+                    keys.append(k)
+        return [(k, k.replace('_',' ').capitalize()) for k in keys]
+
+    # One cell, rendered for a human. None becomes blank, not the word "None".
+    def export_cell(self,field:str,value:Any,listName:str='') -> str:
+        if value is None:
+            return ''
+        if field in ('amount','price','value','balance','monthContribution'):
+            try:
+                return f'{float(value):,.2f}'
+            except (TypeError, ValueError):
+                return str(value)
+        if field == 'currency':
+            return str(value).upper()
+        if field == 'interest_rate':
+            try:
+                return f'{float(value) * 100:.2f}%'
+            except (TypeError, ValueError):
+                return str(value)
+        return str(value)
+
+    # Export a list to a .csv file
+    def export_to_csv(self,listName:str,filename:str=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
-        listToProcess = data[listName]
+        listToProcess = data.get(listName) or []
         # If listToProcess is empty do no continue
         if not listToProcess:
-            return {'success':False,'message':'No expenses to process'}
-        # Write .csv file
-        df = pd.DataFrame(listToProcess)
-        df.to_csv(filename,index=False)
-        return {'success':True,'message':f'Wrote {listName} to {filename}','data':df}
+            return {'success':False,'message':f'No {listName} to export'}
+        cols = self.export_columns(listName,listToProcess)
+        rows = [{h: self.export_cell(f,row.get(f),listName) for f,h in cols}
+                for row in listToProcess]
+        df = pd.DataFrame(rows,columns=[h for _,h in cols])
+        # utf-8-sig so Excel shows a pound/euro/yen sign instead of mojibake.
+        # The encoded bytes are returned as well, so a download button never has
+        # to re-serialise the frame and lose the BOM.
+        csv_bytes = df.to_csv(index=False).encode('utf-8-sig')
+        # filename=None means "just give me the bytes" — the web UI does not want
+        # a file dropped into whatever directory the app was started from.
+        if filename:
+            with open(filename,'wb') as fh:
+                fh.write(csv_bytes)
+        where = f' to {filename}' if filename else ''
+        return {'success':True,'message':f'Exported {len(rows)} {listName}{where}',
+                'data':df,'bytes':csv_bytes}
 
-    # Export to PDF
-    def export_to_pdf(self, listName: str, filename: str) -> Dict[str, Any]:
-        from reportlab.lib.pagesizes import letter
+    # Export a list to a PDF
+    def export_to_pdf(self, listName: str, filename: str = None, title: str = None) -> Dict[str, Any]:
+        from reportlab.lib.pagesizes import letter, landscape
         from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                        Paragraph, Spacer)
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from datetime import datetime as _dt
+        from collections import defaultdict
         import io
 
         result = self.open_file()
@@ -963,36 +1044,103 @@ class ExpenseTracker():
         if not items:
             return {'success': False, 'message': f'No {listName} to export'}
 
+        cols = self.export_columns(listName, items)
+        amount_field = self.EXPORT_AMOUNT_FIELD.get(listName)
+        # Wide tables get landscape so columns are not crushed off the page
+        pagesize = landscape(letter) if len(cols) > 5 else letter
+
         buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=letter)
+        doc = SimpleDocTemplate(
+            buf, pagesize=pagesize,
+            leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+            topMargin=0.6 * inch, bottomMargin=0.7 * inch,
+            title=title or f'{listName.capitalize()} report', author='Finance Kit',
+        )
         styles = getSampleStyleSheet()
-        story = []
+        head = ParagraphStyle('h', parent=styles['Title'], fontSize=17, spaceAfter=2,
+                              textColor=colors.HexColor('#1f2937'))
+        sub = ParagraphStyle('s', parent=styles['Normal'], fontSize=8.5,
+                             textColor=colors.HexColor('#6b7280'))
+        cellstyle = ParagraphStyle('c', parent=styles['Normal'], fontSize=8.5, leading=10.5)
 
-        story.append(Paragraph(f'{listName.capitalize()} Report', styles['Title']))
-        story.append(Paragraph(f'Generated: {_dt.now().strftime("%Y-%m-%d %H:%M")}', styles['Normal']))
-        story.append(Spacer(1, 16))
+        story = [Paragraph(title or f'{listName.replace("_"," ").capitalize()} report', head),
+                 Paragraph(f'Finance Kit &middot; {len(items)} record(s) &middot; generated '
+                           f'{_dt.now().strftime("%d %b %Y at %H:%M")}', sub),
+                 Spacer(1, 14)]
 
-        headers = list(items[0].keys())
-        table_data = [headers] + [[str(row.get(h, '')) for h in headers] for row in items]
-        t = Table(table_data, repeatRows=1)
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F81BD')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        headings = [h for _, h in cols]
+        # Long free text is wrapped in a Paragraph so it flows inside the cell
+        # instead of overflowing and pushing the table off the page.
+        body = []
+        for row in items:
+            line = []
+            for f, _h in cols:
+                txt = self.export_cell(f, row.get(f), listName)
+                line.append(Paragraph(txt, cellstyle) if len(txt) > 28 else txt)
+            body.append(line)
+
+        # Totals PER CURRENCY - adding USD to JPY would be a lie.
+        totals = defaultdict(float)
+        if amount_field:
+            for row in items:
+                try:
+                    totals[str(row.get('currency', '')).upper()] += float(row.get(amount_field, 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+
+        table_data = [headings] + body
+        amount_idx = next((i for i, (f, _) in enumerate(cols) if f == amount_field), None)
+        if totals and amount_idx is not None:
+            for cur, tot in sorted(totals.items()):
+                trow = [''] * len(cols)
+                trow[max(0, amount_idx - 1)] = f'Total ({cur})' if cur else 'Total'
+                trow[amount_idx] = f'{tot:,.2f}'
+                table_data.append(trow)
+
+        t = Table(table_data, repeatRows=1, hAlign='LEFT')
+        style = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4f46e5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#EBF3FF')]),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ]))
+            ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+            ('ROWBACKGROUNDS', (0, 1), (-1, len(body)), [colors.white, colors.HexColor('#f5f7fb')]),
+            ('GRID', (0, 0), (-1, len(body)), 0.25, colors.HexColor('#e5e7eb')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]
+        if amount_idx is not None:
+            style.append(('ALIGN', (amount_idx, 0), (amount_idx, -1), 'RIGHT'))
+        if totals and amount_idx is not None:
+            first_total = len(body) + 1
+            style += [
+                ('FONTNAME', (0, first_total), (-1, -1), 'Helvetica-Bold'),
+                ('LINEABOVE', (0, first_total), (-1, first_total), 0.7, colors.HexColor('#4f46e5')),
+            ]
+        t.setStyle(TableStyle(style))
         story.append(t)
 
-        doc.build(story)
-        pdf_bytes = buf.getvalue()
-        with open(filename, 'wb') as f:
-            f.write(pdf_bytes)
-        return {'success': True, 'message': f'PDF exported to {filename}', 'data': pdf_bytes}
+        # Page numbers, so a printed multi-page report can be reassembled.
+        def _page(canvas, doc_):
+            canvas.saveState()
+            canvas.setFont('Helvetica', 7.5)
+            canvas.setFillColor(colors.HexColor('#9ca3af'))
+            canvas.drawRightString(pagesize[0] - 0.6 * inch, 0.42 * inch,
+                                   f'Page {canvas.getPageNumber()}')
+            canvas.drawString(0.6 * inch, 0.42 * inch, 'Finance Kit')
+            canvas.restoreState()
 
+        doc.build(story, onFirstPage=_page, onLaterPages=_page)
+        pdf_bytes = buf.getvalue()
+        # filename=None means "just give me the bytes" — see export_to_csv.
+        if filename:
+            with open(filename, 'wb') as f:
+                f.write(pdf_bytes)
+        where = f' to {filename}' if filename else ''
+        return {'success': True, 'message': f'Exported {len(items)} {listName}{where}',
+                'data': pdf_bytes, 'bytes': pdf_bytes}
 
     # Convert expenses to a different currency
     def convert_prices_to_currency(self,to_currency:str) -> Dict[str,Any]:

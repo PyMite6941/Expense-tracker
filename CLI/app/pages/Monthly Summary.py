@@ -177,25 +177,23 @@ if len(all_months) > 1:
 
 # Export options
 st.subheader('Export Data')
+st.caption('Files are built in memory — nothing is written to disk until you save it.')
+_month_label = st.session_state.get('current_month', '')
 col1, col2 = st.columns(2)
 with col1:
-    if st.button('Export Expenses to CSV'):
-        result = st.session_state.tracker.export_to_csv('expenses', 'expenses.csv')
-        if result['success']:
-            st.download_button(
-                label="Download Expenses CSV",
-                data=result['data'].to_csv(index=False).encode('utf-8'),
-                file_name="expenses.csv",
-                mime="text/csv"
-            )
+    _csv = st.session_state.tracker.export_to_csv('expenses')
+    if _csv['success']:
+        st.download_button('Download expenses (.csv)', data=_csv['bytes'],
+                           file_name=f'expenses_{_month_label}.csv', mime='text/csv',
+                           type='primary')
+    else:
+        st.caption(_csv['message'])
 with col2:
-    if st.button('Export Summary to PDF'):
-        result = st.session_state.tracker.export_to_pdf('expenses', 'monthly_summary.pdf')
-        if result['success']:
-            with open('monthly_summary.pdf', 'rb') as f:
-                st.download_button(
-                    label="Download PDF Summary",
-                    data=f,
-                    file_name="monthly_summary.pdf",
-                    mime="application/pdf"
-                )
+    _pdf = st.session_state.tracker.export_to_pdf(
+        'expenses', title=f'Expenses — {_month_label}' if _month_label else None)
+    if _pdf['success']:
+        st.download_button('Download expenses (.pdf)', data=_pdf['bytes'],
+                           file_name=f'expenses_{_month_label}.pdf',
+                           mime='application/pdf')
+    else:
+        st.caption(_pdf['message'])

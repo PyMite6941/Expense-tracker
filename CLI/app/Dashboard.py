@@ -966,10 +966,10 @@ with tab_view_expenses:
                 st.rerun()
             except Exception as _e:
                 st.error(f'Import failed: {_e}')
-    result = st.session_state.tracker.export_to_csv('expenses', 'expenses.csv')
+    result = st.session_state.tracker.export_to_csv('expenses')
     if result['success']:
-        st.download_button(label='Export expenses to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='expenses.csv', mime='text/csv', key='exp_download')
-    pdf_result = st.session_state.tracker.export_to_pdf('expenses', 'expenses.pdf')
+        st.download_button(label='Export expenses to .csv', data=result['bytes'], file_name='expenses.csv', mime='text/csv', key='exp_download')
+    pdf_result = st.session_state.tracker.export_to_pdf('expenses', title='Expenses')
     if pdf_result['success']:
         st.download_button(label='Export expenses to .pdf', data=pdf_result['data'], file_name='expenses.pdf', mime='application/pdf', key='exp_pdf_download')
 
@@ -1045,10 +1045,10 @@ with tab_view_income:
                 st.rerun()
             except Exception as _e:
                 st.error(f'Import failed: {_e}')
-    result = st.session_state.tracker.export_to_csv('income', 'income.csv')
+    result = st.session_state.tracker.export_to_csv('income')
     if result['success']:
-        st.download_button(label='Export income to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='income.csv', mime='text/csv', key='inc_download')
-    pdf_result = st.session_state.tracker.export_to_pdf('income', 'income.pdf')
+        st.download_button(label='Export income to .csv', data=result['bytes'], file_name='income.csv', mime='text/csv', key='inc_download')
+    pdf_result = st.session_state.tracker.export_to_pdf('income', title='Income')
     if pdf_result['success']:
         st.download_button(label='Export income to .pdf', data=pdf_result['data'], file_name='income.pdf', mime='application/pdf', key='inc_pdf_download')
 
@@ -1087,9 +1087,9 @@ with tab_view_subscriptions:
                 st.rerun()
             except Exception as _e:
                 st.error(f'Import failed: {_e}')
-    result = st.session_state.tracker.export_to_csv('subscriptions', 'subscriptions.csv')
+    result = st.session_state.tracker.export_to_csv('subscriptions')
     if result['success']:
-        st.download_button(label='Export subscriptions to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='subscriptions.csv', mime='text/csv', key='sub_download')
+        st.download_button(label='Export subscriptions to .csv', data=result['bytes'], file_name='subscriptions.csv', mime='text/csv', key='sub_download')
 
 # ── Assets & Liabilities (Max only) ──────────────────────────────────────────
 with tab_net_worth:
