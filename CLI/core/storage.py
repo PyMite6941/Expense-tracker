@@ -598,7 +598,10 @@ class PostgresStore(StorageBackend):
         """
         if cls._is_wrapped(data):
             inner = data.get("accounts_data")
-            return inner if isinstance(inner, dict) else None
+            # A LIST is the current shape; dict is the pre-list one. Checking
+            # only for dict meant every write silently dropped the accounts —
+            # they never reached the database at all.
+            return inner if isinstance(inner, (dict, list)) else None
         return None
 
     def read(self) -> Dict[str, Any]:
