@@ -14,7 +14,8 @@ import streamlit as st
 
 from CLI.app.streamlit_setup import init_st, sync_data
 from CLI.app.theme import page_setup, section, render_sidebar
-from CLI.core.storage import (ACCOUNT_TYPE_FIELDS, ACCOUNT_TYPE_META,
+from CLI.core.storage import (account_balance, unassigned_total,
+                              ACCOUNT_TYPE_FIELDS, ACCOUNT_TYPE_META,
                               ACCOUNT_FIELD_CHOICES, ACCOUNT_RATE_FIELDS,
                               account_types_by_group, apply_account_type,
                               is_liability, new_account)
@@ -167,20 +168,50 @@ with tab_list:
         st.info("No accounts yet — add your first on the **Create an account** tab.",
                 icon="🏦")
     else:
-        held = sum(float(a.get("balance", 0) or 0) for a in accounts if not is_liability(a))
-        owed = sum(float(a.get("balance", 0) or 0) for a in accounts if is_liability(a))
+        _blob = _load()
+        _exp = _blob["data"].get("expenses") or []
+        _inc = _blob["data"].get("income") or []
+        _bal = {a["id"]: account_balance(a, _exp, _inc) for a in accounts}
+
+        held = sum(b["current"] for b in _bal.values() if not b["is_liability"])
+        owed = sum(b["current"] for b in _bal.values() if b["is_liability"])
         k = st.columns(3)
         k[0].metric("Held", f"{held:,.2f}")
         k[1].metric("Owed", f"{owed:,.2f}")
         k[2].metric("Net", f"{held - owed:,.2f}", delta=f"{held - owed:+,.0f}")
-        st.caption("Balances are whatever you last entered on each account.")
+        st.caption("Balances are derived from what you have charged to each "
+                   "account, starting from the balance you entered — so they "
+                   "cannot drift away from the transactions that explain them.")
+
+        _un = unassigned_total(_exp, _inc)
+        if _un["expenses"] or _un["income"]:
+            st.info(
+                f"**{_un['expenses']:,.2f}** of spending and "
+                f"**{_un['income']:,.2f}** of income are not assigned to any "
+                "account, so they do not move a balance. Set an account when "
+                "you add them, or leave them — they still count in your totals.",
+                icon="\U0001F9FE",
+            )
         st.divider()
 
         for acc in accounts:
             meta = ACCOUNT_TYPE_META.get(acc.get("type", ""), {})
             label = meta.get("label", acc.get("type") or "Not set yet")
             icon = "💳" if is_liability(acc) else "🏦"
-            with st.expander(f"{icon}  {acc.get('name') or '(unnamed)'} — {label}"):
+            _b = _bal.get(acc["id"], {})
+            _cur_txt = (f" · {_b.get('current', 0):,.2f} {_b.get('currency','')}"
+                        + (" owed" if _b.get("is_liability") else ""))
+            with st.expander(f"{icon}  {acc.get('name') or '(unnamed)'} — {label}{_cur_txt}"):
+                if _b.get("transactions"):
+                    m = st.columns(4)
+                    m[0].metric("Opening", f"{_b['opening']:,.2f}")
+                    m[1].metric("Charged", f"{_b['charged']:,.2f}")
+                    m[2].metric("Paid in", f"{_b['paid_in']:,.2f}")
+                    m[3].metric("Now", f"{_b['current']:,.2f}")
+                    st.caption(f"{_b['transactions']} transaction(s) charged to this account.")
+                else:
+                    st.caption("Nothing charged to this account yet. Pick it on "
+                               "the **Manage** tab when adding an expense.")
                 shown = {kk: vv for kk, vv in acc.items()
                          if kk not in ("id", "name", "type", "expenses", "deposits")}
                 if shown:

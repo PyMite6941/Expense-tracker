@@ -133,6 +133,27 @@ def _locked(feature_label: str, tier: str = 'Pro'):
     upsell(feature_label, tier)
 
 
+def _account_picker(label: str, key: str, current=None):
+    """Choose which account a transaction is charged to.
+
+    "Not assigned" stays first and is the default: assigning an account is
+    optional, and a transaction without one still counts towards your totals.
+    Returns the account id, or None.
+    """
+    accounts = st.session_state.get("accounts_list") or []
+    if not accounts:
+        st.caption("No accounts yet — add one on the **Accounts** page to track "
+                   "which card or account this came from.")
+        return None
+    ids = [None] + [a.get("id") for a in accounts]
+    names = {a.get("id"): a.get("name") or "(unnamed)" for a in accounts}
+    idx = ids.index(current) if current in ids else 0
+    return st.selectbox(
+        label, ids, index=idx, key=key,
+        format_func=lambda i: "— Not assigned —" if i is None else names.get(i, str(i)),
+    )
+
+
 # Eight flat tabs was too many to scan. They're grouped into four, with the
 # originals nested underneath — every `with tab_*:` block below still works
 # because Streamlit containers render wherever they were created.
@@ -580,11 +601,16 @@ with tab_add:
             expense_date = st.date_input('Expense Date', value=_default_date, key='add_exp_date')
             expense_notes = st.text_area('Expense Notes', key='add_exp_notes')
             recurring = st.checkbox('Recurring Expense', key='add_exp_recurring')
+            expense_account = _account_picker('Charge to account',
+                                             'add_expense_account')
             if st.form_submit_button('Add Expense'):
                 if recurring:
                     results = st.session_state.tracker.add_recurring_expense(expense_amount, expense_purchased, expense_category, expense_currency)
                 else:
-                    results = st.session_state.tracker.add_expenses(expense_amount, expense_purchased, expense_category, expense_currency, str(expense_date), expense_notes)
+                    results = st.session_state.tracker.add_expenses(
+                        expense_amount, expense_purchased, expense_category,
+                        expense_currency, str(expense_date), expense_notes,
+                        account_id=expense_account)
                 if results['success']:
                     for k in ('ocr_merchant', 'ocr_total', 'ocr_date', 'ai_suggested_category'):
                         st.session_state.pop(k, None)
@@ -636,11 +662,16 @@ with tab_add:
             income_date = st.date_input('Income Date', key='add_inc_date')
             income_notes = st.text_area('Income Notes', key='add_inc_notes')
             recurring = st.checkbox('Recurring Income', key='add_inc_recurring')
+            income_account = _account_picker('Paid into account',
+                                            'add_income_account')
             if st.form_submit_button('Add Income'):
                 if recurring:
                     results = st.session_state.tracker.add_recurring_income(income_amount, income_source, income_currency)
                 else:
-                    results = st.session_state.tracker.add_income(income_amount, income_source, str(income_date), income_currency, income_notes)
+                    results = st.session_state.tracker.add_income(
+                        income_amount, income_source, str(income_date),
+                        income_currency, income_notes,
+                        account_id=income_account)
                 if results['success']:
                     st.success(results['message'])
                     sync_data()

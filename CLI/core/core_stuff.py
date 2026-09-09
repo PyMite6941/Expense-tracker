@@ -175,7 +175,7 @@ class ExpenseTracker():
             return {'success':False,'message':'Data not found'}
 
     # Add new expenses
-    def add_expenses(self,price:float,purchased:str,tags:str,currency:str,date:str,notes:str) -> Dict[str,Any]:        
+    def add_expenses(self,price:float,purchased:str,tags:str,currency:str,date:str,notes:str,account_id:int=None) -> Dict[str,Any]:        
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -192,6 +192,8 @@ class ExpenseTracker():
             'date':date,
             'currency':currency.lower(),
             'notes':notes,
+            # Which account this was charged to. None = not assigned.
+            'account_id':account_id,
         }
         expenseList.append(expense)
         data['expenses'] = expenseList
@@ -199,7 +201,7 @@ class ExpenseTracker():
         return {'success':True,'message':'Expense properly added.'}
 
     # Edit an expense
-    def edit_expenses(self,expense_id:int,price:Optional[float]=None,purchased:Optional[str]=None,tags:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None)-> Dict[str,Any]:
+    def edit_expenses(self,expense_id:int,price:Optional[float]=None,purchased:Optional[str]=None,tags:Optional[str]=None,date:Optional[str]=None,currency:Optional[str]=None,notes:Optional[str]=None,account_id:Optional[int]=None)-> Dict[str,Any]:
         try:
             # Define the list to process
             result = self.open_file()
@@ -237,6 +239,8 @@ class ExpenseTracker():
                     # Change the notes if notes != None
                     if notes != None:
                         expense['notes'] = notes
+                    if account_id is not None:
+                        expense['account_id'] = account_id
             # If expense not found
             if count < 1:
                 return {'success':False,'message':'Expense not found'}
@@ -295,7 +299,7 @@ class ExpenseTracker():
             return {'success':False,'message':'Data not found'}
         
     # Add income data
-    def add_income(self,amount:float,source:str,date:str,currency:str='usd',notes:Optional[str]=None) -> Dict[str,Any]:
+    def add_income(self,amount:float,source:str,date:str,currency:str='usd',notes:Optional[str]=None,account_id:int=None) -> Dict[str,Any]:
         # Define the list to process
         result = self.open_file()
         data = result['data']
@@ -311,6 +315,8 @@ class ExpenseTracker():
             'date':date,
             'currency':currency,
             'notes':notes,
+            # Which account this was paid into. None = not assigned.
+            'account_id':account_id,
         }
         # Add and write new income
         incomeList.append(new_income)
@@ -939,9 +945,10 @@ class ExpenseTracker():
     # agree, and so internal fields (id) never reach a customer-facing file.
     EXPORT_COLUMNS = {
         'expenses':           [('date','Date'),('purchased','Item'),('tags','Category'),
-                               ('price','Amount'),('currency','Currency'),('notes','Notes')],
+                               ('price','Amount'),('currency','Currency'),
+                               ('account_id','Account'),('notes','Notes')],
         'income':             [('date','Date'),('source','Source'),('amount','Amount'),
-                               ('currency','Currency'),('notes','Notes')],
+                               ('currency','Currency'),('account_id','Account'),('notes','Notes')],
         'budget':             [('category','Category'),('amount','Monthly limit'),('currency','Currency')],
         'subscriptions':      [('name','Subscription'),('price','Amount'),
                                ('currency','Currency'),('startDate','Started')],

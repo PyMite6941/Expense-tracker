@@ -203,6 +203,54 @@ def is_liability(account: Dict[str, Any]) -> bool:
     return meta.get("sign") == "liability"
 
 
+def account_balance(account: Dict[str, Any], expenses: list, income: list) -> Dict[str, Any]:
+    """What an account is actually holding, derived from what was charged to it.
+
+    opening_balance (or `balance`, whichever the user entered) is the starting
+    point; everything charged to the account moves it from there. Derived rather
+    than stored, so the number can never drift away from the transactions that
+    explain it.
+
+    Sign depends on what the account IS. Spending on a credit card increases
+    what you OWE; spending from checking decreases what you HOLD. Without that
+    distinction a card would look like it was gaining money every purchase.
+    """
+    aid = account.get("id")
+    opening = float(account.get("opening_balance", account.get("balance", 0)) or 0)
+    charged = sum(float(e.get("price", 0) or 0)
+                  for e in (expenses or []) if e.get("account_id") == aid)
+    paid_in = sum(float(i.get("amount", 0) or 0)
+                  for i in (income or []) if i.get("account_id") == aid)
+
+    if is_liability(account):
+        # A card: purchases add to the balance owed, payments reduce it.
+        current = opening + charged - paid_in
+    else:
+        current = opening - charged + paid_in
+
+    return {
+        "account_id": aid,
+        "opening": round(opening, 2),
+        "charged": round(charged, 2),
+        "paid_in": round(paid_in, 2),
+        "current": round(current, 2),
+        "is_liability": is_liability(account),
+        "currency": str(account.get("currency", "usd")).upper(),
+        "transactions": sum(1 for e in (expenses or []) if e.get("account_id") == aid)
+                        + sum(1 for i in (income or []) if i.get("account_id") == aid),
+    }
+
+
+def unassigned_total(expenses: list, income: list) -> Dict[str, float]:
+    """Money not charged to any account — so the gap is visible rather than silent."""
+    return {
+        "expenses": round(sum(float(e.get("price", 0) or 0)
+                              for e in (expenses or []) if not e.get("account_id")), 2),
+        "income": round(sum(float(i.get("amount", 0) or 0)
+                            for i in (income or []) if not i.get("account_id")), 2),
+    }
+
+
 # Every field any type can add, so a leftover from a previous type is spottable.
 _ALL_TYPE_FIELDS = {f for fields in ACCOUNT_TYPE_FIELDS.values() for f in fields}
 
@@ -285,6 +333,16 @@ def normalize_blob(blob: Any) -> Dict[str, Any]:
             finance[key] = list(empty)
 
     accounts = _normalize_accounts(accounts)
+
+    # Drop links to accounts that no longer exist. Deleting an account must not
+    # leave expenses pointing at a ghost — they become unassigned, which is
+    # honest, rather than silently counting towards a balance nobody can see.
+    live_ids = {a.get("id") for a in accounts}
+    for key in ("expenses", "income"):
+        for row in finance.get(key) or []:
+            if row.get("account_id") is not None and row.get("account_id") not in live_ids:
+                row["account_id"] = None
+
     return {"finance_data": finance, "accounts_data": accounts}
 
 
@@ -390,8 +448,10 @@ class JsonStore(StorageBackend):
 # Column names match 001_enterprise_schema.sql; a few differ from the JSON keys
 # (subscriptions.startDate -> start_date, goals.monthContribution -> month_contribution).
 _TABLE_SPEC = {
-    "expenses":           ("expenses",           [("price", "price"), ("purchased", "purchased"), ("tags", "tags"), ("date", "date"), ("currency", "currency"), ("notes", "notes")]),
-    "income":             ("income",             [("amount", "amount"), ("source", "source"), ("date", "date"), ("currency", "currency"), ("notes", "notes")]),
+    # account_id: which account this was charged to / paid into. Nullable, so
+    # every existing row stays valid and using accounts stays optional.
+    "expenses":           ("expenses",           [("price", "price"), ("purchased", "purchased"), ("tags", "tags"), ("date", "date"), ("currency", "currency"), ("notes", "notes"), ("account_id", "account_id")]),
+    "income":             ("income",             [("amount", "amount"), ("source", "source"), ("date", "date"), ("currency", "currency"), ("notes", "notes"), ("account_id", "account_id")]),
     "budget":             ("budgets",            [("category", "category"), ("amount", "amount"), ("currency", "currency")]),
     "subscriptions":      ("subscriptions",      [("name", "name"), ("price", "price"), ("currency", "currency"), ("startDate", "start_date")]),
     "goals":              ("goals",              [("name", "name"), ("amount", "amount"), ("startDate", "start_date"), ("monthContribution", "month_contribution"), ("currency", "currency")]),
