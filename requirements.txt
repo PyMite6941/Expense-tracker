@@ -1,8 +1,59 @@
-streamlit==1.53.1
-matplotlib==3.10.8
-pandas==2.3.3
-numpy==2.4.1
-requests==2.32.5
-packaging==26.0
-reportlab
-google-cloud-vision>=3.7.0,<4.0.0
+# GRID Expense Tracker — LOCAL APP (run.py: the terminal CLI + the Streamlit UI)
+#
+# This file covers the app you run on your own machine. The two cloud services
+# have their own, and they are NOT installed by this file:
+#   backend/requirements.txt       analytics + AI + OCR API
+#   auth-service/requirements.txt  licence issuing API
+#
+# Every package below is imported directly by run.py, CLI/, or published/app.py.
+# Verified against Python 3.13.7 with the versions noted in each comment.
+#
+#   pip install -r requirements.txt
+
+# ── Web UI ───────────────────────────────────────────────────────────────────
+# 1.36+ is required for st.navigation (CLI/app/main.py routes with it).
+# Floor is 1.57 because that is what the current UI is tested against.
+streamlit>=1.57,<2                  # verified 1.57.0
+
+# ── Data layer ───────────────────────────────────────────────────────────────
+# pandas: CSV import/export and recurring-expense detection in core_stuff.py
+pandas>=2.3,<4                      # verified 3.0.2
+# matplotlib: core_stuff.create_graphs (the CLI charts). No longer used by the
+# Streamlit UI — those are native Streamlit and Plotly now.
+matplotlib>=3.10,<4                 # verified 3.10.7
+# plotly: the interactive pie/donut charts. Streamlit has no native pie, and a
+# matplotlib one is a flat PNG with no hover, tooltip or click-to-isolate.
+plotly>=6.0,<7                      # verified 6.8.0
+# reportlab: core_stuff.export_to_pdf
+reportlab>=4.4,<5                   # verified 4.4.10
+# requests: currency conversion, update check, and all cloud backend calls
+requests>=2.32,<3                   # verified 2.34.2
+# packaging: version comparison in validate_update()
+packaging>=24                       # verified 26.2
+
+# ── Terminal CLI (run.py -> "CLI" mode) ──────────────────────────────────────
+# These are imported at module scope by run.py and CLI/app/cli/cli_app.py, so
+# the app cannot start without them. They were missing from this file, which
+# meant a clean install died on `from rich.panel import Panel` at run.py line 4.
+questionary>=2.1,<3                 # verified 2.1.1
+rich>=14,<16                        # verified 15.0.0
+plotext>=5.3,<6                     # verified 5.3.2
+
+# ── Optional: hosted / multi-tenant mode ─────────────────────────────────────
+# Only needed when STORAGE_MODE=hosted (CLI/core/storage.py PostgresStore).
+# The free, local, self-hosted mode never imports it.
+psycopg[binary]>=3.2,<4             # verified 3.3.4
+
+# ── Optional: local receipt OCR ──────────────────────────────────────────────
+# backend/ocr.py is imported lazily by the dashboard, and ONLY when
+# GOOGLE_APPLICATION_CREDENTIALS is set. Left commented so a normal install does
+# not pull ~100 MB of Google client libraries it will never load. Uncomment to
+# run receipt scanning against your own GCP credentials locally.
+# google-cloud-vision>=3.7,<4
+
+# ── NOT dependencies of this app ─────────────────────────────────────────────
+# numpy — removed. Nothing imports it directly any more (the dashboard charts
+#   are native Streamlit now); pandas and matplotlib pull a compatible version
+#   themselves, and pinning it here only created resolver conflicts.
+# fpdf2 / pygments — only used by pdf_converter.py, which is a personal tool and
+#   is gitignored. Not part of the application.

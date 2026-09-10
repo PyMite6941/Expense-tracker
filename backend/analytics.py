@@ -67,7 +67,11 @@ def detect_anomalies(expenses: list, z_threshold: float = 2.5) -> dict:
     for cat, items in by_category.items():
         if len(items) < 3:
             continue
-        prices = [i['price'] for i in items if isinstance(i.get('price'), (int, float))]
+        # Score only the rows with a numeric price. A CSV import can leave a
+        # price as a string ('1,234.50', '$12.50'), and scoring `items` while
+        # the stats came from the filtered list raised TypeError on that row.
+        numeric = [i for i in items if isinstance(i.get('price'), (int, float))]
+        prices = [i['price'] for i in numeric]
         if len(prices) < 3:
             continue
         mean = sum(prices) / len(prices)
@@ -77,7 +81,7 @@ def detect_anomalies(expenses: list, z_threshold: float = 2.5) -> dict:
             continue
         if std == 0:
             continue
-        for item in items:
+        for item in numeric:
             z = abs(item['price'] - mean) / std
             if z >= z_threshold:
                 anomalies.append({
