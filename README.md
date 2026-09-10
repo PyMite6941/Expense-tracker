@@ -1,6 +1,8 @@
 # Finance Kit
 
-Personal finance app with a CLI mode and a full Streamlit web UI. Tracks expenses, income, budgets, subscriptions, goals, recurring transactions, assets, and liabilities. AI analytics and net worth run server-side on Google Cloud Run.
+Personal finance app with a CLI mode and a full Streamlit web UI. Tracks expenses, income, budgets, subscriptions, goals, recurring transactions, accounts, assets and liabilities.
+
+**Your data stays on your machine.** Forecasting, anomaly detection and net worth are computed locally — they are arithmetic and need no server. The only feature that transmits anything is the natural-language query, which needs a language model, and only when you press Ask.
 
 **License:** All Rights Reserved © 2026 PyMite6941 — view/personal use only. See license section below.
 
@@ -37,8 +39,15 @@ CLI/
       Email Import.py       — /import
       Phone Connect.py      — /phone
       Settings.py           — /settings  account, storage mode, export/backup
+      Accounts.py           — /accounts  create/edit accounts, derived balances
   core/
-    core_stuff.py           — all data CRUD; reads/writes data.json
+    core_stuff.py           — all data CRUD; delegates storage to storage.py
+    storage.py              — the file format: JsonStore | PostgresStore, account
+                              types, encryption at rest, legacy migration
+    secure_store.py         — AES-256-GCM for stored credentials and hosted rows
+    tenancy.py              — AuthUser, org resolution, entitlement claiming
+db/migrations/              — 001 schema, 002 entitlements, 003 concurrency,
+                              004 accounts, 005 encryption, 006 account links
 backend/
   server.py                 — FastAPI server deployed on Cloud Run
   analytics.py              — forecast, anomaly, net worth, tax, health score, etc.
