@@ -23,5 +23,12 @@ comment on column income.account_id is
 -- Accounts live in organizations.accounts_data / accounts_enc rather than their
 -- own table, so this cannot be a real foreign key yet. The app enforces it, and
 -- normalize_blob drops a link whose account no longer exists.
+-- NOTE: these indexes do nothing while encryption at rest is on. account_id
+-- travels inside `enc` (deliberately — which card you used is as sensitive as
+-- the amount), so the plaintext column stays NULL and there is nothing to
+-- index. They are kept because they cost almost nothing on an all-NULL column
+-- and become live the moment encryption is off. If you ever need server-side
+-- per-account queries, account_id has to come OUT of the ciphertext, and the
+-- server can then see which account every transaction belongs to.
 create index if not exists expenses_account_idx on expenses (org_id, account_id);
 create index if not exists income_account_idx   on income   (org_id, account_id);
