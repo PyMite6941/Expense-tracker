@@ -2,7 +2,7 @@
 
 Personal finance app with a CLI mode and a full Streamlit web UI. Tracks expenses, income, budgets, subscriptions, goals, recurring transactions, assets, and liabilities. AI analytics and net worth run server-side on Google Cloud Run.
 
-**License:** All Rights Reserved © 2026 PyMite6941 — view/personal use only. See license section below.
+**License:** MIT License © 2026 Matt Gresham — see [LICENSE](LICENSE) for details.
 
 ---
 
