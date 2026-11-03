@@ -27,8 +27,9 @@ from ai import (
     smart_budget_advisor, expense_narrative, cash_flow_forecast,
     debt_elimination_planner, investment_readiness_check,
     financial_goal_coach, spending_dna_analysis, categorize_transactions,
+    advanced_report,
 )
-from ocr import parse_receipt
+from ocr import OCRUnavailable, parse_receipt
 from ip_limits import check_and_register_ip, key_id_from_claims, reset_key
 
 log = logging.getLogger(__name__)
@@ -366,6 +367,8 @@ async def parse(request: Request, file: UploadFile,
         raise HTTPException(status_code=413, detail='File too large. Max 10MB.')
     try:
         return parse_receipt(data)
+    except OCRUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception:
@@ -511,8 +514,15 @@ async def advanced_categorize(request: Request, _claims: dict = Depends(require_
 
     try:
         from bots import AdvancedCategorizationCrew
-    except ImportError as exc:
-        raise HTTPException(status_code=503, detail=f'Advanced categorization unavailable: {exc}')
+    except ImportError:
+        # CrewAI is not installed on the Vercel build (too large). One LLM call
+        # returns the same report shape, so clients don't need to know.
+        if not ai_configured():
+            raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+        try:
+            return advanced_report(expenses[:300], context)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
 
     crew = AdvancedCategorizationCrew(context=context)
     result = crew.run(expenses)

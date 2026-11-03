@@ -33,7 +33,9 @@ def _import_server():
 def client():
     try:
         server = _import_server()
-    except Exception as exc:  # missing heavy deps (crewai, vision) on a dev box
+    except SyntaxError:
+        raise  # a broken backend file must fail, not skip
+    except Exception as exc:  # missing deps on a dev box
         pytest.skip(f"backend not importable here: {exc}")
     from fastapi.testclient import TestClient
     server.app.dependency_overrides[server.require_pro] = lambda: {"features": ["advanced_categorization"]}
@@ -81,3 +83,23 @@ def test_requires_a_licence():
         assert r.status_code in (401, 403)
     finally:
         server.app.dependency_overrides.update(saved)
+
+
+def test_advanced_categorize_falls_back_without_crewai(client, monkeypatch):
+    """On Vercel CrewAI isn't installed; one LLM call returns the same report shape."""
+    c, _ = client
+    import ai
+    monkeypatch.setitem(sys.modules, "bots", None)  # makes `from bots import ...` raise ImportError
+    monkeypatch.setattr(ai, "_chat", lambda *a, **k:
+                        '{"summary": "ok", "key_findings": ["a"], "anomalies": [], "recommendations": ["b"]}')
+    r = c.post("/advanced-categorize", json={"expenses": [{"name": "Coffee", "price": 4, "category": "Food"}]})
+    assert r.status_code == 200
+    assert r.json() == {"summary": "ok", "key_findings": ["a"], "anomalies": [], "recommendations": ["b"]}
+
+
+def test_ip_limiter_fails_open_without_any_store(monkeypatch):
+    sys.path.insert(0, os.path.abspath(BACKEND))
+    import ip_limits
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(ip_limits, "_get_client", lambda: None)
+    assert ip_limits.check_and_register_ip({"tier": "pro", "jti": "x"}, "1.2.3.4") == (True, 0, 3)

@@ -1,5 +1,6 @@
 import hmac
 import ipaddress
+import logging
 import os
 import re
 import smtplib
@@ -9,8 +10,7 @@ from email.message import EmailMessage
 import resend
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from google.cloud import firestore
-from google.api_core.exceptions import AlreadyExists, GoogleAPIError
+import ledger
 from jwt_utils import (create_license_jwt, verify_license_jwt,
                        describe_license_error)
 from onchain import verify_usdc_payment
@@ -65,6 +65,8 @@ def _real_ip(request: Request) -> str:
                 pass
     return request.client.host if request.client else "unknown"
 
+log = logging.getLogger(__name__)
+
 limiter = Limiter(key_func=_real_ip)
 
 app = FastAPI(title="Expense Tracker License Service")
@@ -95,28 +97,11 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Issue-Secret"],
 )
 
-LICENSE_COLLECTION = os.getenv("LICENSE_COLLECTION", "licenses")
-
-_db = None
-
-
-def _firestore():
-    global _db
-    if _db is None:
-        _db = firestore.Client()
-    return _db
-
-
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _valid_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email)) and len(email) <= 254
-
-
-def _safe_doc_id(order_id: str) -> str:
-    # Firestore document IDs cannot contain '/' and must be <= 1500 bytes.
-    return order_id.replace("/", "_")[:1500]
 
 
 @app.get("/health")
@@ -130,8 +115,12 @@ def health(request: Request):
 TIER_PRICE_USDC = {"pro": 9, "max": 20}
 
 
-def _issue_license(email: str, tier: str, order_id: str) -> dict:
-    """Mint + record + email a license. Idempotent on order_id."""
+def _issue_license(email: str, tier: str, order_id: str,
+                   require_ledger: bool = True) -> dict:
+    """Mint + record + email a license. Idempotent on order_id.
+
+    require_ledger=False (trusted /issue only) still mints when no ledger is
+    configured; /redeem must never do that, or one tx hash mints unlimited keys."""
     token = create_license_jwt(email, tier=tier)
     claims = verify_license_jwt(token) or {}
 
@@ -145,17 +134,18 @@ def _issue_license(email: str, tier: str, order_id: str) -> dict:
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    # Atomic idempotency: create() fails if a doc already exists for this
+    # Atomic idempotency: the insert fails if a record already exists for this
     # order_id, so one order (or one tx hash) can never mint two keys — even
-    # across instances.
-    doc_ref = _firestore().collection(LICENSE_COLLECTION).document(_safe_doc_id(order_id))
+    # across instances. See ledger.py for the Postgres / Firestore choice.
     try:
-        doc_ref.create(record)
-    except AlreadyExists:
+        ledger.record(order_id, record)
+    except ledger.AlreadyRecorded:
         raise HTTPException(status_code=409,
                             detail="A license has already been issued for this payment.")
-    except GoogleAPIError as exc:
-        raise HTTPException(status_code=503, detail=f"License store unavailable: {exc}")
+    except ledger.LedgerUnavailable as exc:
+        if require_ledger:
+            raise HTTPException(status_code=503, detail=f"License store unavailable: {exc}")
+        log.warning("Licence %s issued WITHOUT a ledger record: %s", order_id, exc)
 
     sent = _send_license_email(email, token, tier)
     return {"token": token, "email": email, "tier": tier, "email_sent": sent}
@@ -192,7 +182,7 @@ async def issue(request: Request):
     if not order_id:
         raise HTTPException(status_code=400, detail="order_id required")
 
-    return _issue_license(email, tier, order_id)
+    return _issue_license(email, tier, order_id, require_ledger=False)
 
 
 @app.post("/redeem")
@@ -212,6 +202,11 @@ async def redeem(request: Request):
         raise HTTPException(status_code=400, detail="tier must be 'pro' or 'max'")
     if not (tx_hash.startswith("0x") and len(tx_hash) == 66):
         raise HTTPException(status_code=400, detail="Valid transaction hash required")
+
+    if ledger.backend_name() == "none":
+        # Without a ledger a tx hash could be redeemed again and again.
+        raise HTTPException(status_code=503,
+                            detail="Automatic redemption is not configured on this deployment.")
 
     ok, reason, _amount = verify_usdc_payment(tx_hash, TIER_PRICE_USDC[tier])
     if not ok:

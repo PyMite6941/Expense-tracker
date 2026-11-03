@@ -27,8 +27,8 @@ from CLI.core.storage import normalize_blob  # noqa: E402
 from CLI.app.theme import inject_css, render_header  # noqa: E402
 
 # ── Cloud endpoints ────────────────────────────────────────────────────────────
-CLOUD_BACKEND = "https://expense-backend-690527435721.us-central1.run.app"
-CLOUD_AUTH    = "https://auth-service-690527435721.us-central1.run.app"
+CLOUD_BACKEND = "https://finance-kit-backend.vercel.app"
+CLOUD_AUTH    = "https://finance-kit-auth.vercel.app"
 
 # ── Shared constants ───────────────────────────────────────────────────────────
 CURRENCIES = ['USD','EUR','GBP','JPY','AUD','CAD','CHF','CNY','SEK','NZD','THB','INR','BTC','ETH','Other']

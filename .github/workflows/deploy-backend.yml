@@ -1,11 +1,9 @@
 name: Deploy Backend to Cloud Run
 
+# MANUAL ONLY since 2026-11-03. Production moved to Vercel (deploy-vercel.yml)
+# because GCP billing is off; every push here was failing and opening an issue.
+# Kept so Cloud Run can be revived: re-enable billing, then run it by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
 # Required for keyless auth: the job mints a GitHub OIDC token that

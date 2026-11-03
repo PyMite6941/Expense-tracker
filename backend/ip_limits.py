@@ -6,9 +6,10 @@ fixed number of distinct client IPs — Pro: 3, Max: 6 by default. The
 authoritative cap travels in the signed token's ``max_ips`` claim, so it
 cannot be tampered with client-side.
 
-State lives in Firestore (collection ``license_ips``) so the limit holds
-across Cloud Run instances and restarts. If Firestore is unavailable the
-check fails OPEN (allows the request) so a storage blip never locks out a
+State lives in Postgres when ``DATABASE_URL`` is set (table ``license_ips``,
+used on Vercel with Neon), otherwise in Firestore (collection ``license_ips``,
+used on Cloud Run), so the limit holds across instances and restarts. If the
+store is unavailable the check fails OPEN (allows the request) so a storage blip never locks out a
 paying customer — set ``IP_LIMIT_FAIL_OPEN=false`` to fail closed instead.
 """
 import hashlib
@@ -43,6 +44,56 @@ def _get_client():
     return _client
 
 
+# ── Postgres (DATABASE_URL) ──────────────────────────────────────────────────
+
+_PG_DDL = """
+CREATE TABLE IF NOT EXISTS license_ips (
+    key_id     text NOT NULL,
+    ip         text NOT NULL,
+    tier       text,
+    sub        text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_id, ip)
+)
+"""
+_pg_ready = False
+
+
+def _pg_url() -> str:
+    return os.getenv("DATABASE_URL", "").strip()
+
+
+def _pg_connect():
+    global _pg_ready
+    import psycopg
+    conn = psycopg.connect(_pg_url(), connect_timeout=5)
+    if not _pg_ready:
+        conn.execute(_PG_DDL)
+        conn.commit()
+        _pg_ready = True
+    return conn
+
+
+def _pg_check(claims: dict, ip: str, limit: int):
+    key_id = key_id_from_claims(claims)
+    with _pg_connect() as conn:
+        # Serialise concurrent first-uses of one key so two new IPs can't both
+        # slip in under the cap.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (key_id,))
+        known = conn.execute("SELECT 1 FROM license_ips WHERE key_id = %s AND ip = %s",
+                             (key_id, ip)).fetchone()
+        count = conn.execute("SELECT count(*) FROM license_ips WHERE key_id = %s",
+                             (key_id,)).fetchone()[0]
+        if known:
+            return True, count, limit
+        if count >= limit:
+            return False, count, limit
+        conn.execute("INSERT INTO license_ips (key_id, ip, tier, sub) VALUES (%s, %s, %s, %s) "
+                     "ON CONFLICT DO NOTHING",
+                     (key_id, ip, claims.get("tier"), claims.get("sub")))
+        return True, count + 1, limit
+
+
 def key_id_from_claims(claims: dict) -> str:
     """Stable per-license id. Prefers the JWT ``jti``; falls back to a hash
     of stable claims for legacy tokens issued before ``jti`` existed."""
@@ -71,6 +122,14 @@ def check_and_register_ip(claims: dict, ip: str):
     limit = max_ips_for(claims)
     if not ip:
         return True, 0, limit  # can't identify the client; don't punish them
+
+    if _pg_url():
+        try:
+            return _pg_check(claims, ip, limit)
+        except Exception as exc:
+            log.warning("IP limit check (postgres) errored (%s); failing %s",
+                        exc, "open" if _FAIL_OPEN else "closed")
+            return _FAIL_OPEN, 0, limit
 
     client = _get_client()
     if client is None:
@@ -110,6 +169,14 @@ def check_and_register_ip(claims: dict, ip: str):
 def reset_key(key_id: str) -> bool:
     """Clear all registered IPs for a license — for support / device-change
     resets. Returns True on success."""
+    if _pg_url():
+        try:
+            with _pg_connect() as conn:
+                conn.execute("DELETE FROM license_ips WHERE key_id = %s", (key_id,))
+            return True
+        except Exception as exc:
+            log.warning("Failed to reset activations for %s: %s", key_id, exc)
+            return False
     client = _get_client()
     if client is None:
         return False

@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+key.json
+*credentials*.json
+*.pem
+__pycache__/
+*.pyc
+Dockerfile
+purchase-page/
+licenses.db

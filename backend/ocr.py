@@ -1,17 +1,32 @@
 import re
-from google.cloud import vision
 
+# google-cloud-vision is optional: it is not installed on the Vercel build
+# (bundle size), only in the Docker image. Imported lazily so the rest of the
+# API still boots without it; /scan-receipt then answers 503.
 _client = None
+
+
+class OCRUnavailable(RuntimeError):
+    pass
+
+
+def _vision():
+    try:
+        from google.cloud import vision
+    except ImportError as exc:
+        raise OCRUnavailable('Receipt OCR is not available on this deployment.') from exc
+    return vision
 
 
 def _get_client():
     global _client
     if _client is None:
-        _client = vision.ImageAnnotatorClient()
+        _client = _vision().ImageAnnotatorClient()
     return _client
 
 
 def parse_receipt(image_bytes: bytes) -> dict:
+    vision = _vision()
     client = _get_client()
     image = vision.Image(content=image_bytes)
     response = client.document_text_detection(image=image)

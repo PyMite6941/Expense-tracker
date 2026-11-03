@@ -1,0 +1,18 @@
+# Deploys run from the repo root (each Vercel project's Root Directory is backend/
+# or auth-service/). ALLOWLIST: upload only the two services, nothing else from
+# the repo (local docs, data.json, .claude/, PDFs...).
+/*
+!/backend
+!/auth-service
+
+# ...and never their secrets.
+**/.env
+**/.env.*
+!**/.env.example
+**/key.json
+**/*credentials*.json
+**/*.pem
+**/.vercel
+**/__pycache__/
+**/Dockerfile
+auth-service/purchase-page/

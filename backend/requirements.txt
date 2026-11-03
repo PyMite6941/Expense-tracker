@@ -1,5 +1,5 @@
 # GRID Expense Tracker — analytics / AI / OCR service (Cloud Run: expense-backend)
-# Built from backend/Dockerfile (python:3.13.7-slim).
+# Lean set: what Vercel installs. The Docker image adds requirements-docker.txt.
 
 # ── Web framework ────────────────────────────────────────────────────────────
 fastapi>=0.110.0,<1.0.0
@@ -21,30 +21,11 @@ PyJWT>=2.10,<3                          # verified 2.12.1
 cryptography>=50.0
 slowapi>=0.1.9,<1.0.0
 
-# ── Google Cloud ─────────────────────────────────────────────────────────────
-google-cloud-firestore>=2.13.0,<3.0.0   # licence IP-activation ledger
-google-cloud-vision>=3.7.0,<4.0.0       # receipt OCR
-
-# ── AI ───────────────────────────────────────────────────────────────────────
-# The [litellm] extra is what pins litellm >=1.84.0. Without it the resolver
-# settles on 1.74.9, which carries 11 advisories. The extra is the only way to
-# get the patched range.
-#
-# KNOWN, NOT FIXABLE HERE: crewai hard-pins `chromadb~=1.1.0`, and every 1.1.x
-# carries PYSEC-2026-311 plus CVE-2026-45830/45831/45833. It cannot be raised
-# from this file — crewai upstream has to move first. chromadb is only reached
-# through the CrewAI crew on /advanced-categorize (Pro, 5/min, licence-gated),
-# so the exposure is limited to authenticated paying callers, but it is real
-# and should be re-checked when crewai releases.
-crewai[litellm]>=1.15,<2
-# Never imported by name — CrewAI loads it dynamically as the embedder provider
-# ("provider": "fastembed" in bots.py). Removing it breaks the crew at runtime
-# with no import error to point at it.
-fastembed>=0.3.0,<1.0.0
-
-# ── Bots (phone_connect.py) ──────────────────────────────────────────────────
-python-telegram-bot>=20.0,<22.0
-discord.py>=2.0,<3.0
+# ── Storage (licence IP-activation cap) ──────────────────────────────────────
+# Postgres when DATABASE_URL is set (Vercel + Neon). Firestore, Vision, CrewAI and
+# the bots are in requirements-docker.txt: too large for a Vercel function, and
+# every one of them is optional at runtime (lazy imports, 503 or an LLM fallback).
+psycopg[binary]>=3.2,<4
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 requests>=2.32.0,<3.0.0

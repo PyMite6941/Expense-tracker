@@ -23,8 +23,8 @@ jobs:
         run: |
           down=()
           for url in \
-            https://expense-backend-690527435721.us-central1.run.app/health \
-            https://auth-service-690527435721.us-central1.run.app/health; do
+            https://finance-kit-backend.vercel.app/health \
+            https://finance-kit-auth.vercel.app/health; do
             # Cold starts can take a while; retry before calling it down.
             ok=0
             for attempt in 1 2 3; do

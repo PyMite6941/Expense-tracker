@@ -1,0 +1,88 @@
+name: Deploy services to Vercel
+
+# Production hosting since 2026-11-03 (GCP billing is off, Cloud Run is down).
+# Vercel's GitHub app can't see this repo from the Vercel account that owns the
+# projects, so deploys go through the CLI with a token instead of a git hook.
+# One-time setup: add repo secret VERCEL_TOKEN (vercel.com/account/tokens).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "auth-service/**"
+      - ".vercelignore"
+      - ".github/workflows/deploy-vercel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write   # report failures, like deploy-backend.yml did
+
+env:
+  VERCEL_ORG_ID: team_OIKXjfcji4qRDChQcV1XhpG3   # ids, not secrets
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            dir: backend
+            project: prj_HGrsTHddRfstm0xc2XPmRChxodC3   # finance-kit-backend
+            url: https://finance-kit-backend.vercel.app
+          - name: auth
+            dir: auth-service
+            project: prj_O4vYnktteCYCRQDBq7cm7mABYc0G   # finance-kit-auth
+            url: https://finance-kit-auth.vercel.app
+    env:
+      VERCEL_PROJECT_ID: ${{ matrix.project }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Skip if this service didn't change
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
+             ! git diff --quiet HEAD^ HEAD -- "${{ matrix.dir }}" .vercelignore .github/workflows/deploy-vercel.yml; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check token
+        if: steps.changed.outputs.deploy == 'true'
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::Repo secret VERCEL_TOKEN is not set (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+      - name: Deploy
+        if: steps.changed.outputs.deploy == 'true'
+        run: npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN"
+
+      - name: Health check
+        if: steps.changed.outputs.deploy == 'true'
+        run: |
+          for i in 1 2 3; do
+            curl -fsS -m 60 "${{ matrix.url }}/health" && exit 0
+            sleep 10
+          done
+          exit 1
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create deploy-failed --color D93F0B 2>/dev/null || true
+          gh issue create --label deploy-failed \
+            --title "Vercel deploy failed (${{ matrix.name }}): ${GITHUB_SHA::7}" \
+            --body "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Production is still on the previous deployment."

@@ -97,6 +97,36 @@ def categorize_transactions(items: list, categories: list) -> dict:
     return out
 
 
+def advanced_report(expenses: list, context: str) -> dict:
+    """Single-call stand-in for the CrewAI crew (same Report shape)."""
+    import json as _json
+    rows = []
+    for e in expenses:
+        if isinstance(e, dict):
+            rows.append({k: e.get(k) for k in ('name', 'price', 'category', 'date') if k in e})
+    raw = _chat([
+        {'role': 'system', 'content': (
+            'You are a personal-finance analyst. Categorize the expenses into useful '
+            'subcategories, spot patterns and anomalies, and give advice. Reply with ONLY a '
+            'JSON object: {"summary": str, "key_findings": [str], "anomalies": [str], '
+            '"recommendations": [str]}. No prose outside the JSON.')},
+        {'role': 'user', 'content': f'Context: {context}\nExpenses: {_json.dumps(rows, default=str)}'},
+    ], max_tokens=1200, temperature=0.3)
+    start, end = raw.find('{'), raw.rfind('}')
+    try:
+        parsed = _json.loads(raw[start:end + 1]) if start != -1 else {}
+    except ValueError:
+        parsed = {}
+    def _lst(v):
+        return [str(x) for x in v] if isinstance(v, list) else []
+    return {
+        'summary': str(parsed.get('summary') or raw[:1500]),
+        'key_findings': _lst(parsed.get('key_findings')),
+        'anomalies': _lst(parsed.get('anomalies')),
+        'recommendations': _lst(parsed.get('recommendations')),
+    }
+
+
 def recommend_budgets(expenses: list, income: list) -> dict:
     from datetime import date
     today = date.today()
