@@ -11,10 +11,13 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 import pandas as pd
+import requests
 import streamlit as st
 
 from CLI.app.streamlit_setup import init_st, sync_data
 from CLI.app.theme import page_setup, render_sidebar, section, upsell
+from CLI.core.bank_import import (DEFAULT_INCOME_RULES, DEFAULT_RULES, SAMPLE_STATEMENT,
+                                  UNCATEGORIZED)
 
 page_setup("Import statement", "🧾")
 init_st()
@@ -47,7 +50,18 @@ dayfirst = {"Auto": None, "Month first (US)": False, "Day first": True}[date_cho
 outflow_positive = {"Auto": None, "Purchases are negative (bank account)": False,
                     "Purchases are positive (credit card)": True}[sign_choice]
 
-if not up:
+if up:
+    st.session_state.pop("_stmt_sample", None)
+elif st.session_state.get("_stmt_sample"):
+    st.info("This is a **sample statement** so you can see how import works. "
+            "Upload your own CSV above to import for real.", icon="🧪")
+    if st.button("Close sample"):
+        st.session_state.pop("_stmt_sample", None)
+        st.rerun()
+else:
+    if st.button("🧪 Try it with a sample statement"):
+        st.session_state["_stmt_sample"] = True
+        st.rerun()
     section("Works with", "Any bank that exports CSV")
     st.markdown(
         "- A single **Amount** column, or separate **Debit / Credit** (Money out / Money in)\n"
@@ -56,7 +70,8 @@ if not up:
         "- Categories learn from you: re-tag a merchant once and future imports follow")
     st.stop()
 
-raw = up.getvalue()
+sample = up is None
+raw = SAMPLE_STATEMENT if sample else up.getvalue()
 key = hashlib.sha256(raw + repr((dayfirst, outflow_positive)).encode()).hexdigest()
 if st.session_state.get("_stmt_key") != key:
     st.session_state["_stmt_key"] = key
@@ -91,11 +106,51 @@ m[2].metric("Money in", f"{in_total:,.2f}")
 m[3].metric("Already imported", meta["duplicates"])
 m[4].metric("Uncategorized", meta["uncategorized"])
 
+# ── Pro: let AI fill in what the local rules couldn't ────────────────────────
+is_pro = "advanced_categorization" in set(st.session_state.get("pro_features", []))
+if meta["uncategorized"] and not is_pro:
+    upsell("AI categorization", "Pro",
+           detail=f"{meta['uncategorized']} transactions didn't match a rule. Pro sorts the "
+                  "leftovers with AI in one click.")
+elif meta["uncategorized"] and is_pro:
+    if st.button(f"✨ Categorize {meta['uncategorized']} leftovers with AI"):
+        todo = [(i, t) for i, t in enumerate(txns) if t["category"] == UNCATEGORIZED][:100]
+        known = sorted(set(DEFAULT_RULES) | set(DEFAULT_INCOME_RULES)
+                       | {e.get("tags") for e in st.session_state.get("expenses", []) if e.get("tags")}
+                       - {UNCATEGORIZED})
+        try:
+            with st.spinner("Asking the AI…"):
+                resp = requests.post(
+                    f"{st.session_state.backend_url}/categorize-transactions",
+                    json={"items": [{"i": i, "merchant": t["merchant"][:120], "amount": t["amount"]}
+                                    for i, t in todo],
+                          "categories": known[:60]},
+                    headers={"Authorization": f"Bearer {st.session_state.get('pro_token', '')}"},
+                    timeout=60)
+        except requests.RequestException as exc:
+            resp, err = None, f"Couldn't reach the AI service: {exc}"
+        if resp is not None and resp.ok:
+            got = resp.json().get("categories", {})
+            for i, t in todo:
+                cat = got.get(str(i))
+                if cat:
+                    t["category"], t["category_source"] = cat, "ai"
+            meta["uncategorized"] = sum(1 for t in txns if t["category"] == UNCATEGORIZED)
+            st.session_state["_stmt_editor_nonce"] = st.session_state.get("_stmt_editor_nonce", 0) + 1
+            st.rerun()
+        elif resp is not None:
+            err = {401: "Licence key rejected; re-activate it on the Pro page.",
+                   403: resp.json().get("detail", "This licence can't use AI categorization."),
+                   429: "Too many requests; try again in a minute."}.get(
+                       resp.status_code, f"AI categorization failed (HTTP {resp.status_code}).")
+        st.error(err)
+    st.caption("Only the cleaned merchant name and amount of the uncategorized rows are sent.")
+
 df = pd.DataFrame(txns)
 df.insert(0, "include", ~df["duplicate"])
 df["date"] = pd.to_datetime(df["date"])
 SOURCE_LABEL = {"rule": "Your rule", "history": "Learned", "bank": "Bank",
-                "keyword": "Auto", "none": "—"}
+                "keyword": "Auto", "ai": "AI", "none": "—"}
 df["how"] = df["category_source"].map(SOURCE_LABEL)
 
 edited = st.data_editor(
@@ -112,16 +167,12 @@ edited = st.data_editor(
         "duplicate": st.column_config.CheckboxColumn("Seen before", disabled=True, width="small"),
         "description": st.column_config.TextColumn("Bank's text", disabled=True),
     },
-    key=f"stmt_editor_{key[:12]}",
+    key=f"stmt_editor_{key[:12]}_{st.session_state.get('_stmt_editor_nonce', 0)}",
 )
 
-if meta["uncategorized"] and not set(st.session_state.get("pro_features", [])) & {"advanced_categorization"}:
-    upsell("AI categorization", "Pro",
-           detail=f"{meta['uncategorized']} transactions didn't match a rule. Pro sorts the "
-                  "leftovers with AI and explains your spending patterns.")
-
 n_selected = int(edited["include"].sum())
-if st.button(f"Import {n_selected} transactions", type="primary", disabled=n_selected == 0):
+if st.button(f"Import {n_selected} transactions", type="primary", disabled=n_selected == 0 or sample,
+             help="Upload your own statement to import" if sample else None):
     rows = []
     for orig, (_, e) in zip(txns, edited.iterrows()):
         rows.append({**orig,

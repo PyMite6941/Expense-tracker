@@ -652,6 +652,46 @@ def page_dashboard():
                         if res['success']: _sync(); st.rerun()
 
 
+def page_statements():
+    """Import a bank CSV. In this demo the data lives in a per-session temp file,
+    so the sample statement can be imported for real and explored."""
+    _init()
+    from CLI.core.bank_import import SAMPLE_STATEMENT
+    st.title('🧾 Import a bank statement')
+    st.caption('Drop in the CSV your bank or card exports. Columns, dates and signs are '
+               'detected, merchants cleaned up and categorized, duplicates skipped.')
+    up = st.file_uploader('Statement (.csv)', type=['csv', 'txt'])
+    if not up and st.button('🧪 Use a sample statement', type='primary'):
+        st.session_state['_pub_stmt_sample'] = True
+    if up:
+        st.session_state.pop('_pub_stmt_sample', None)
+    if not up and not st.session_state.get('_pub_stmt_sample'):
+        st.info('No bank file handy? Use the sample statement, then open **Monthly Summary**.')
+        return
+    raw = up.getvalue() if up else SAMPLE_STATEMENT
+    t = _get_tracker()
+    preview = t.preview_bank_statement(raw)
+    if not preview['success']:
+        st.error(f"Couldn't read this file: {preview['message']}")
+        return
+    txns, meta = preview['transactions'], preview['meta']
+    st.success(preview['message'])
+    df = pd.DataFrame(txns)[['date', 'merchant', 'amount', 'category', 'duplicate']]
+    st.dataframe(df, hide_index=True, width='stretch', column_config={
+        'amount': st.column_config.NumberColumn('Amount', format='%.2f'),
+        'duplicate': st.column_config.CheckboxColumn('Seen before')})
+    if meta['uncategorized']:
+        st.caption(f"{meta['uncategorized']} didn't match a rule. Pro sorts these with AI "
+                   "(see Pro Features).")
+    new = sum(1 for x in txns if not x['duplicate'])
+    if st.button(f'Import {new} transactions', disabled=new == 0):
+        r = t.commit_bank_import(txns, meta['currency'] or 'usd',
+                                 source_name=up.name if up else 'sample statement')
+        st.session_state.pop('_pub_stmt_sample', None)
+        _sync()
+        st.success(r['message'] + ' — open Monthly Summary to see it.')
+
+
 def page_monthly():
     _init(); _license_badge()
     st.title('📅 Monthly Summary')
@@ -686,7 +726,7 @@ def page_monthly():
             by_cat: dict = {}
             for e in exps: by_cat[e.get('tags','Other')] = by_cat.get(e.get('tags','Other'),0) + e['price']
             df = pd.DataFrame({'Category':list(by_cat.keys()),'Amount':list(by_cat.values())}).sort_values('Amount',ascending=False)
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.dataframe(df, hide_index=True, width='stretch')
             fig, ax = plt.subplots(figsize=(4,4))
             ax.pie(df['Amount'], labels=df['Category'], autopct='%1.1f%%', startangle=90)
             st.pyplot(fig); plt.close(fig)
@@ -699,7 +739,7 @@ def page_monthly():
             by_src: dict = {}
             for i in incs: by_src[i.get('source','Other')] = by_src.get(i.get('source','Other'),0) + i['amount']
             df = pd.DataFrame({'Source':list(by_src.keys()),'Amount':list(by_src.values())}).sort_values('Amount',ascending=False)
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.dataframe(df, hide_index=True, width='stretch')
             fig, ax = plt.subplots(figsize=(4,4))
             ax.pie(df['Amount'], labels=df['Source'], autopct='%1.1f%%', startangle=90)
             st.pyplot(fig); plt.close(fig)
@@ -714,7 +754,7 @@ def page_monthly():
             mi = sum(i['amount'] for i in st.session_state.income   if i.get('date','').startswith(m))
             rows.append({'Month': pd.to_datetime(m).strftime('%b %Y'), 'Expenses':me,'Income':mi,'Savings':mi-me})
         dfm = pd.DataFrame(rows)
-        st.dataframe(dfm, hide_index=True, use_container_width=True)
+        st.dataframe(dfm, hide_index=True, width='stretch')
         fig, ax = plt.subplots(figsize=(10,4))
         dfm.plot(x='Month', y=['Expenses','Income'], kind='bar', ax=ax)
         ax.set_ylabel('Amount ($)'); plt.xticks(rotation=45,ha='right'); plt.tight_layout()
@@ -727,6 +767,24 @@ def page_monthly():
         ax2.set_ylabel('Savings ($)'); ax2.legend()
         plt.xticks(rotation=45, ha='right'); plt.tight_layout()
         st.pyplot(fig2); plt.close(fig2)
+
+    st.divider(); st.subheader('Budget vs actual')
+    rep = _get_tracker().monthly_report(month)['data']
+    if rep['budgets']:
+        _icon = {'over': '🔴 Over', 'warning': '🟡 Close', 'ok': '🟢 On track'}
+        st.dataframe(pd.DataFrame([{
+            'Category': b['category'], 'Limit': b['limit'], 'Spent': b['spent'],
+            'Remaining': b['remaining'], 'Used': min(b['pct_used'], 100.0), 'Status': _icon[b['status']],
+        } for b in rep['budgets']]), hide_index=True, width='stretch', column_config={
+            'Used': st.column_config.ProgressColumn(min_value=0, max_value=100, format='%.0f%%')})
+    else:
+        st.caption('Add budgets on the Dashboard to track spending against limits.')
+    k1, k2, k3 = st.columns(3)
+    k1.metric('Savings rate', '—' if rep['savings_rate'] is None else f"{rep['savings_rate']}%")
+    k2.metric('Avg daily spend', f"{rep['avg_daily_spend']:,.2f}")
+    k3.metric('Spend vs last month', '—' if rep['spend_change_pct'] is None else f"{rep['spend_change_pct']:+.1f}%")
+    st.download_button('Monthly report (.csv)', _get_tracker().export_monthly_report(month, 'csv')['bytes'],
+                       f'report_{month}.csv', 'text/csv')
 
     st.divider(); st.subheader('Export')
     c1,c2 = st.columns(2)
@@ -893,7 +951,7 @@ def page_pro():
                     'Change': f"{r2.get('change_pct',0):+.1f}%",
                     'Action': r2.get('action',''),
                 } for r2 in recs])
-                st.dataframe(df_recs, hide_index=True, use_container_width=True)
+                st.dataframe(df_recs, hide_index=True, width='stretch')
                 for r2 in recs:
                     with st.expander(f"💬 {r2['category']}"):
                         st.write(r2.get('reasoning',''))
@@ -959,7 +1017,7 @@ def page_pro():
         if result and result.get('success'):
             projs = result.get('projections', [])
             if projs:
-                st.dataframe(pd.DataFrame(projs), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(projs), hide_index=True, width='stretch')
                 fig, ax = plt.subplots(figsize=(10,4))
                 x = [p['month'] for p in projs]
                 ax.bar(x, [p['predicted_income']   for p in projs], label='Income',   alpha=0.7, color='steelblue')
@@ -1114,7 +1172,7 @@ def page_email():
     st.success(f'Found **{len(results)}** potential expense(s).', icon='📬')
     rows = [{'date':r['date'],'purchased':r['purchased'],'price':r['price'],
              'currency':r['currency'],'tags':r['tags'],'subject':r.get('_subject','')} for r in results]
-    edited = st.data_editor(pd.DataFrame(rows), use_container_width=True, num_rows='fixed',
+    edited = st.data_editor(pd.DataFrame(rows), width='stretch', num_rows='fixed',
         column_config={'price':st.column_config.NumberColumn('Amount',format='%.2f'),
                        'tags':st.column_config.SelectboxColumn('Category',
                            options=['Food','Shopping','Travel','Subscriptions','Utilities','Healthcare','Education','Entertainment','Other'])},
@@ -1295,7 +1353,7 @@ def page_settings():
             _df = pd.DataFrame(_data.get(_which) or [])
             st.download_button(f'Download {_which}.csv', _df.to_csv(index=False),
                                f'{_which}.csv', 'text/csv')
-            st.dataframe(_df, use_container_width=True, hide_index=True)
+            st.dataframe(_df, width='stretch', hide_index=True)
 
         st.divider()
         st.subheader('Clear All Data')
@@ -1436,7 +1494,7 @@ def page_max():
                 if not df_alloc.empty:
                     col_tbl, col_pie = st.columns([2,3])
                     with col_tbl:
-                        st.dataframe(df_alloc, hide_index=True, use_container_width=True)
+                        st.dataframe(df_alloc, hide_index=True, width='stretch')
                     with col_pie:
                         fig, ax = plt.subplots(figsize=(4,4))
                         ax.pie(df_alloc['Allocation (%)'],
@@ -1544,7 +1602,7 @@ def page_max():
                         if not df_m.empty and 'name' in df_m.columns:
                             st.dataframe(
                                 df_m.rename(columns={'name':'Merchant','count':'Times','total':'Total ($)'}),
-                                hide_index=True, use_container_width=True)
+                                hide_index=True, width='stretch')
                 if result.get('insights'):
                     st.divider(); st.subheader('🔍 Key Insights')
                     for ins in result['insights']: st.info(ins)
@@ -1585,6 +1643,7 @@ render_header(mode="session")
 pg = st.navigation([
     st.Page(page_home,      title='Home',            icon='🏠', default=True),
     st.Page(page_dashboard, title='Dashboard',       icon='📊'),
+    st.Page(page_statements, title='Import statement', icon='🧾'),
     st.Page(page_monthly,   title='Monthly Summary', icon='📅'),
     st.Page(page_recurring, title='Recurring',       icon='🔄'),
     st.Page(page_pro,       title='Pro Features',    icon='⭐'),

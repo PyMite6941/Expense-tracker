@@ -175,3 +175,12 @@ class TestDuplicates:
 
 def test_bank_abbreviations():
     assert Categorizer().categorize("WHOLEFDS MKT #10234", -82)[0] == "Groceries"
+
+
+def test_sample_statement_parses_and_mostly_categorizes():
+    res = parse_statement(bi.SAMPLE_STATEMENT)
+    assert len(res.transactions) == 19 and not res.sign_guessed
+    c = Categorizer()
+    cats = [c.categorize(t.description, t.amount)[0] for t in res.transactions]
+    # One deliberately unknown merchant shows off the "Uncategorized" -> Pro flow
+    assert cats.count("Uncategorized") == 1

@@ -60,6 +60,43 @@ def suggest_category(merchant: str, amount: float, categories: list = None) -> s
     return 'Other'
 
 
+def categorize_transactions(items: list, categories: list) -> dict:
+    """Batch-categorize what the local rules couldn't.
+
+    items: [{"i": int, "merchant": str, "amount": float}] (merchant names and
+    amounts only; the client never sends account details).
+    Returns {i: category}; every category is one of ``categories`` or 'Other',
+    and ids the model invents or drops are ignored.
+    """
+    import json as _json
+    cats = [c for c in categories if c] or _CATEGORIES
+    lines = '\n'.join(f'{it["i"]}\t{it["merchant"]}\t{it["amount"]:.2f}' for it in items)
+    raw = _chat([
+        {'role': 'system', 'content': (
+            'You categorize bank transactions. Negative amounts are spending, positive are income. '
+            f'Allowed categories: {", ".join(cats)}, Other. '
+            'Reply with ONLY a JSON object mapping each id (as a string) to one allowed category, '
+            'e.g. {"0": "Dining", "1": "Other"}. No prose.')},
+        {'role': 'user', 'content': f'id\tmerchant\tamount\n{lines}'},
+    ], max_tokens=min(40 + 12 * len(items), 2048), temperature=0)
+    start, end = raw.find('{'), raw.rfind('}')
+    try:
+        parsed = _json.loads(raw[start:end + 1]) if start != -1 else {}
+    except ValueError:
+        parsed = {}
+    by_lower = {c.lower(): c for c in cats + ['Other']}
+    valid_ids = {int(it['i']) for it in items}
+    out = {}
+    for k, v in parsed.items():
+        try:
+            i = int(k)
+        except (TypeError, ValueError):
+            continue
+        if i in valid_ids:
+            out[i] = by_lower.get(str(v).strip().lower(), 'Other')
+    return out
+
+
 def recommend_budgets(expenses: list, income: list) -> dict:
     from datetime import date
     today = date.today()

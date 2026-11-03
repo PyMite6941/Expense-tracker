@@ -374,7 +374,7 @@ with tab_export:
         df.to_csv(buf, index=False)
         st.download_button(f"Download {which}.csv", data=buf.getvalue(),
                            file_name=f"{which}.csv", mime="text/csv")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
     else:
         st.caption("This list is empty.")
 

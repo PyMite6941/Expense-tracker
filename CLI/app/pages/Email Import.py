@@ -173,7 +173,7 @@ st.markdown('**Select expenses to import:**')
 # Per-row checkboxes via data editor
 edited = st.data_editor(
     df,
-    use_container_width=True,
+    width='stretch',
     num_rows='fixed',
     column_config={
         'price':    st.column_config.NumberColumn('Amount', format='%.2f'),

@@ -26,7 +26,7 @@ from ai import (
     answer_query, is_configured as ai_configured, recommend_budgets,
     smart_budget_advisor, expense_narrative, cash_flow_forecast,
     debt_elimination_planner, investment_readiness_check,
-    financial_goal_coach, spending_dna_analysis,
+    financial_goal_coach, spending_dna_analysis, categorize_transactions,
 )
 from ocr import parse_receipt
 from ip_limits import check_and_register_ip, key_id_from_claims, reset_key
@@ -517,6 +517,33 @@ async def advanced_categorize(request: Request, _claims: dict = Depends(require_
     crew = AdvancedCategorizationCrew(context=context)
     result = crew.run(expenses)
     return result
+
+
+class CategorizeItem(BaseModel):
+    i: int
+    merchant: str = Field(..., max_length=120)
+    amount: float
+
+
+class CategorizeTransactionsRequest(BaseModel):
+    items: list[CategorizeItem] = Field(..., min_length=1, max_length=100)
+    categories: list[str] = Field(default_factory=list, max_length=60)
+
+
+# One cheap LLM call that fills in what the local rules left "Uncategorized"
+# on the Statements page. Pro, rate-limited like the other LLM endpoints.
+@app.post('/categorize-transactions')
+@limiter.limit("10/minute")
+def categorize_transactions_endpoint(req: CategorizeTransactionsRequest, request: Request,
+                                     _claims: dict = Depends(require_pro)):
+    if not ai_configured():
+        raise HTTPException(status_code=503, detail='AI_API_KEY is not configured.')
+    cats = [str(c)[:40] for c in req.categories if str(c).strip()]
+    try:
+        result = categorize_transactions([it.model_dump() for it in req.items], cats)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {'categories': {str(k): v for k, v in result.items()}}
 
 
 class ResetActivationsRequest(BaseModel):

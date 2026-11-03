@@ -106,7 +106,7 @@ if expense_by_category:
     # Table and chart side by side — the chart no longer needs a full row.
     col_table, col_chart = st.columns([3, 2])
     with col_table:
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        st.dataframe(df, hide_index=True, width='stretch')
     with col_chart:
         st.plotly_chart(_pie(df['Amount'], df['Category'], 'Expense distribution'),
                         config={'displayModeBar': False})
@@ -132,7 +132,7 @@ if income_by_source:
 
     col_table, col_chart = st.columns([3, 2])
     with col_table:
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        st.dataframe(df, hide_index=True, width='stretch')
     with col_chart:
         st.plotly_chart(_pie(df['Amount'], df['Source'], 'Income distribution'),
                         config={'displayModeBar': False})
@@ -199,7 +199,7 @@ if len(all_months) > 1:
 
     df = pd.DataFrame(monthly_data)
 
-    st.dataframe(df, hide_index=True, use_container_width=True)
+    st.dataframe(df, hide_index=True, width='stretch')
 
     # Native charts: these were full-width matplotlib PNGs ~760px tall each,
     # which pushed the export controls off the screen. Native ones are compact,
