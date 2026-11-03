@@ -7,93 +7,256 @@ sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(__file__),'..', '
 
 # Initialize the session states
 from CLI.app.streamlit_setup import init_st, sync_data, BACKEND_URL, USE_LOCAL_BACKEND
+from CLI.app.theme import page_setup, section, account_banner, render_sidebar, upsell
 import requests as _requests
+import json as _json
+from datetime import datetime as _dtm
 
+# Must run before any other Streamlit call (set_page_config + theme + nav).
+page_setup("Finance Kit", "💸")
 init_st()
+render_sidebar()
+
+
+class _Resp:
+    """The parts of a requests.Response the panels actually use.
+
+    A real Response is not safely cacheable, so the network layer is reduced to
+    (status_code, parsed body) and that is what gets memoised.
+    """
+    __slots__ = ('status_code', '_body')
+
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body
+
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 300
+
+    def json(self):
+        if self._body is None:
+            raise ValueError('no JSON body')
+        return self._body
+
+
+@st.cache_data(ttl=300, show_spinner=False, max_entries=64)
+def _backend_fetch(url: str, payload_json: str, auth_fingerprint: str):
+    """One cached round trip.
+
+    Streamlit re-runs the whole script on EVERY widget interaction, and the
+    Overview fires three of these on each render. Against Cloud Run that was
+    measured at ~28s per cold call, so changing the month re-paid the entire
+    cost and the panels sat blank each time.
+
+    Keyed on the endpoint, the exact payload, and a FINGERPRINT of the token —
+    never the token itself, which must not sit in a cache key. Failures are
+    cached too, deliberately: a free user hitting a 403 should not re-wait 28
+    seconds for the same 403 on every rerun.
+    """
+    headers = {}
+    if auth_fingerprint:
+        headers['Authorization'] = f'Bearer {st.session_state.get("pro_token", "")}'
+    try:
+        r = _requests.post(url, data=payload_json,
+                           headers={**headers, 'Content-Type': 'application/json'},
+                           timeout=30)
+    except (_requests.exceptions.ConnectionError, _requests.exceptions.Timeout):
+        return None
+    try:
+        body = r.json()
+    except Exception:
+        body = None
+    return _Resp(r.status_code, body)
 
 
 def _backend_post(endpoint: str, payload: dict, token: str = None):
-    headers = {}
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
+    import hashlib as _hashlib
+    url = f'{st.session_state.get("backend_url", BACKEND_URL)}{endpoint}'
+    fp = _hashlib.sha256(token.encode()).hexdigest()[:16] if token else ''
+    return _backend_fetch(url, _json.dumps(payload, sort_keys=True, default=str), fp)
+
+def _gated(resp, feature_label: str):
+    """Turn a backend response into (payload, notice).
+
+    Panels used to collapse every failure into a falsy default, so a 403 from
+    the Pro gate rendered as "not enough history" or a green "no anomalies
+    detected" — telling a user their data was thin when really the feature was
+    locked, and hiding real anomalies from anyone whose licence had lapsed.
+    """
+    if resp is None:
+        return None, ('warning', 'Backend unreachable — check your connection.')
+    if resp.status_code in (401, 403):
+        # 'locked' is rendered by upsell(), so a paywalled panel offers a way to
+        # buy rather than just naming the tier and stopping.
+        if st.session_state.get('pro_token'):
+            return None, ('locked_expired', feature_label)
+        return None, ('locked', feature_label)
+    if resp.status_code == 429:
+        return None, ('warning', 'Rate limit reached — try again in a minute.')
+    if not resp.ok:
+        detail = ''
+        try:
+            detail = resp.json().get('detail', '')
+        except Exception:
+            pass
+        return None, ('error', f'Request failed ({resp.status_code}). {detail}'.strip())
     try:
-        return _requests.post(
-            f'{st.session_state.get("backend_url", BACKEND_URL)}{endpoint}',
-            json=payload, headers=headers, timeout=30,
-        )
-    except (_requests.exceptions.ConnectionError, _requests.exceptions.Timeout):
+        return resp.json(), None
+    except Exception:
+        return None, ('error', 'Backend returned an unreadable response.')
+
+
+def _notice(notice):
+    kind, msg = notice
+    if kind == 'locked':
+        upsell(msg, 'Pro')
+    elif kind == 'locked_expired':
+        upsell(msg, 'Pro',
+               detail='Your current licence does not cover it, or it has expired.')
+    else:
+        {'info': st.info, 'warning': st.warning, 'error': st.error}[kind](msg)
+
+
+def _has_feature(feature: str) -> bool:
+    """True when the activated licence covers this feature.
+
+    Checked against the claims decoded from the licence JWT, not by asking the
+    server — the pure-maths analytics run locally now, so there is no request
+    whose 403 could gate them.
+    """
+    return feature in (st.session_state.get('pro_features') or [])
+
+
+def _locked(feature_label: str, tier: str = 'Pro'):
+    """Render the paywall for a locally-computed feature."""
+    upsell(feature_label, tier)
+
+
+def _account_picker(label: str, key: str, current=None):
+    """Choose which account a transaction is charged to.
+
+    "Not assigned" stays first and is the default: assigning an account is
+    optional, and a transaction without one still counts towards your totals.
+    Returns the account id, or None.
+    """
+    accounts = st.session_state.get("accounts_list") or []
+    if not accounts:
+        st.caption("No accounts yet — add one on the **Accounts** page to track "
+                   "which card or account this came from.")
         return None
+    ids = [None] + [a.get("id") for a in accounts]
+    names = {a.get("id"): a.get("name") or "(unnamed)" for a in accounts}
+    idx = ids.index(current) if current in ids else 0
+    return st.selectbox(
+        label, ids, index=idx, key=key,
+        format_func=lambda i: "— Not assigned —" if i is None else names.get(i, str(i)),
+    )
 
-st.title('Web-based Expense and Income Tracking')
 
-tab_dashboard, tab_add, tab_delete, tab_edit, tab_view_expenses, tab_view_income, tab_view_subscriptions, tab_net_worth = st.tabs([
-    'Dashboard', 'Add', 'Delete', 'Edit', 'View Expenses', 'View Income', 'View Subscriptions', 'Assets & Liabilities'
-])
+# Eight flat tabs was too many to scan. They're grouped into four, with the
+# originals nested underneath — every `with tab_*:` block below still works
+# because Streamlit containers render wherever they were created.
+tab_overview, tab_manage, tab_records, tab_net_worth = st.tabs(
+    ['Overview', 'Manage', 'Records', 'Net Worth']
+)
+
+tab_dashboard = tab_overview
+
+with tab_manage:
+    tab_add, tab_edit, tab_delete = st.tabs(['Add', 'Edit', 'Delete'])
+
+with tab_records:
+    tab_view_expenses, tab_view_income, tab_view_subscriptions = st.tabs(
+        ['Expenses', 'Income', 'Subscriptions']
+    )
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 with tab_dashboard:
-    if st.session_state.expenses:
-        filtered_expenses = [e for e in st.session_state.expenses if e['date'][:7] == st.session_state.current_month]
-        monthly_expenses = sum(e['price'] for e in filtered_expenses)
-        st.metric('Monthly Expenses', f"{monthly_expenses:.2f} USD")
-    else:
-        st.write("No expenses found.")
+    # Hosted-mode fallbacks (no account / no entitlement / DB unreachable) are
+    # set by _build_tracker() but were never surfaced on any page. Show them.
+    account_banner()
 
-    if st.session_state.income:
-        filtered_income = [i for i in st.session_state.income if i['date'][:7] == st.session_state.current_month]
-        monthly_income = sum(i['amount'] for i in filtered_income)
-        st.metric('Monthly Income', f"{monthly_income:.2f} USD")
-    else:
-        st.write("No income found.")
+    # ── Month selector ───────────────────────────────────────────────────────
+    # Everything below keys off current_month, which used to be pinned to today
+    # with no control anywhere — last month was simply unreachable.
+    _this_month = _dtm.now().strftime('%Y-%m')
+    _months_with_data = {str(e['date'])[:7] for e in st.session_state.expenses if e.get('date')}
+    _months_with_data |= {str(i['date'])[:7] for i in st.session_state.income if i.get('date')}
+    _known_months = set(_months_with_data) | {_this_month}
+    _months = sorted(_known_months, reverse=True)
 
+    # Open on the newest month that actually HAS records. Defaulting to the
+    # calendar month meant that on the 1st or 2nd every figure read 0.00 and the
+    # dashboard looked broken until you noticed the picker. Only applied on the
+    # first render — once you pick a month, your choice stands.
+    if 'overview_month' not in st.session_state:
+        st.session_state.current_month = (
+            max(_months_with_data) if _months_with_data else _this_month
+        )
+    if st.session_state.current_month not in _months:
+        st.session_state.current_month = _months[0]
+
+    _pick_col, _ = st.columns([1, 3])
+    with _pick_col:
+        st.session_state.current_month = st.selectbox(
+            'Month', _months, index=_months.index(st.session_state.current_month),
+            key='overview_month',
+        )
+    _month = st.session_state.current_month
+
+    # ── Headline KPIs ────────────────────────────────────────────────────────
+    # Always rendered, even at zero, so the grid never jumps between states.
+    _exp_rows = [e for e in st.session_state.expenses if str(e.get('date', ''))[:7] == _month]
+    _inc_rows = [i for i in st.session_state.income if str(i.get('date', ''))[:7] == _month]
+    _spent = sum(float(e.get('price', 0) or 0) for e in _exp_rows)
+    _earned = sum(float(i.get('amount', 0) or 0) for i in _inc_rows)
+    _net = _earned - _spent
+    _srate = (_net / _earned * 100) if _earned else None
+
+    _k = st.columns(4)
+    _k[0].metric('Expenses', f"{_spent:,.2f}", help=f"{len(_exp_rows)} transaction(s) in {_month}")
+    _k[1].metric('Income', f"{_earned:,.2f}", help=f"{len(_inc_rows)} entry/entries in {_month}")
+    _k[2].metric('Net', f"{_net:,.2f}", delta=f"{_net:+,.2f}")
+    _k[3].metric('Savings rate', f"{_srate:.0f}%" if _srate is not None else '—',
+                 help='Net as a share of income. Needs income recorded for this month.')
+
+    if not st.session_state.expenses and not st.session_state.income:
+        st.info('No data yet — add an expense or some income on the **Manage** tab '
+                'to light up the dashboard.', icon='👋')
+
+    # ── Budget status ────────────────────────────────────────────────────────
+    # One source of truth. This used to render twice: a hand-rolled loop and then
+    # again via backend.analytics.budget_utilization, showing the same numbers.
     if st.session_state.budget:
-        st.subheader('Budget Status')
-        budget_totals = {}
-        for expense in st.session_state.expenses:
-            if expense['date'][:7] == st.session_state.current_month:
-                tag = expense['tags']
-                budget_totals[tag] = budget_totals.get(tag, 0) + expense['price']
-        for budget in st.session_state.budget:
-            total_spent = budget_totals.get(budget['category'], 0)
-            limit = float(budget['amount'])
-            pct = min(total_spent / limit, 1.0) if limit > 0 else 0.0
-            over = total_spent > limit
-            col_label, col_bar = st.columns([1, 3])
-            with col_label:
-                st.write(f"**{budget['category']}**")
-                st.caption(f"{total_spent:.2f} / {limit:.2f} {budget.get('currency','USD').upper()}")
-            with col_bar:
-                st.progress(pct)
-                if over:
-                    st.error(f"Over by {total_spent - limit:.2f} — reduce {budget['category']} spending", icon='🚨')
-                elif pct >= 0.9:
-                    st.warning(f"{int(pct*100)}% used — approaching limit", icon='⚠️')
-
-    # ── Budget utilization bars ──────────────────────────────────────────────
-    if st.session_state.budget:
-        try:
-            from backend.analytics import budget_utilization as _bud_util
-            _bu_items = _bud_util(st.session_state.expenses, st.session_state.budget, st.session_state.current_month)
-            if _bu_items:
-                st.caption('Budget utilization this month:')
-                for _bu in _bu_items:
-                    _pct = _bu['percent']
-                    _bar_color = 'normal' if _pct < 80 else ('off' if _pct < 100 else 'off')
-                    st.markdown(
-                        f"**{_bu['category']}** — {_bu['spent']:.2f} / {_bu['limit']:.2f} {_bu['currency']} "
-                        f"({_pct:.1f}%)"
-                    )
-                    st.progress(min(1.0, _pct / 100))
-        except Exception:
-            pass
-
-    st.divider()
+        with st.container(border=True):
+            section('Budget status', f'Spend against each category limit for {_month}.')
+            _spent_by_cat = {}
+            for _e in _exp_rows:
+                _t = _e.get('tags', 'Other')
+                _spent_by_cat[_t] = _spent_by_cat.get(_t, 0) + float(_e.get('price', 0) or 0)
+            for _b in st.session_state.budget:
+                _used = _spent_by_cat.get(_b['category'], 0)
+                _limit = float(_b.get('amount', 0) or 0)
+                _pct = (_used / _limit) if _limit > 0 else 0.0
+                _cur = str(_b.get('currency', 'USD')).upper()
+                _lab, _bar = st.columns([1, 3])
+                with _lab:
+                    st.write(f"**{_b['category']}**")
+                    st.caption(f"{_used:,.2f} / {_limit:,.2f} {_cur}")
+                with _bar:
+                    st.progress(min(_pct, 1.0))
+                    if _used > _limit:
+                        st.error(f"Over by {_used - _limit:,.2f} {_cur}", icon='🚨')
+                    elif _pct >= 0.9:
+                        st.warning(f"{_pct * 100:.0f}% used — approaching limit", icon='⚠️')
 
     # ── Net-worth snapshot (Max only) ────────────────────────────────────────
-    st.subheader('Net-Worth Snapshot')
+    section('Net-Worth Snapshot', 'Assets minus liabilities, with cash flow and commitments.')
     _pro_features = st.session_state.get('pro_features', [])
     if 'net_worth' not in _pro_features:
-        st.info('Net Worth tracking is a **Max** feature. Activate a Max license on the Pro Features page to unlock it.')
+        upsell('Net-worth tracking', 'Max',
+               detail='It totals your assets against your liabilities and tracks the gap over time.')
     else:
         try:
             _nw_payload = {
@@ -104,12 +267,12 @@ with tab_dashboard:
                 'assets': st.session_state.get('assets', []),
                 'liabilities': st.session_state.get('liabilities', []),
             }
-            if USE_LOCAL_BACKEND:
-                from backend.analytics import net_worth_snapshot
-                _nw = net_worth_snapshot(_nw_payload, convert_fn=st.session_state.tracker.convert_currency)
-            else:
-                _resp = _backend_post('/net-worth', _nw_payload, token=st.session_state.get('pro_token'))
-                _nw = (_resp.json() if _resp.ok else {'success': False}) if _resp is not None else {'success': False}
+            # Computed HERE. This payload is the single most sensitive thing in
+            # the app — every expense, income, subscription, goal, asset and
+            # liability — and it was being POSTed in full to run arithmetic.
+            from backend.analytics import net_worth_snapshot
+            _nw = net_worth_snapshot(_nw_payload,
+                                     convert_fn=st.session_state.tracker.convert_currency)
             if _nw.get('success'):
                 _cur = _nw['base_currency']
                 _nw_cols = st.columns(4)
@@ -128,57 +291,67 @@ with tab_dashboard:
             st.info(f'Net-worth snapshot unavailable: {_e}')
 
     # ── Savings rate ─────────────────────────────────────────────────────────
-    st.subheader('Savings Rate')
+    section('Savings Rate', 'Share of income kept, by month.')
     try:
         from backend.analytics import savings_rate_history as _srh
-        _sr = _srh(st.session_state.income, st.session_state.expenses)
-        if _sr['success'] and _sr['history']:
-            _recent_months = sorted(_sr['history'].keys())[-6:]
-            _sr_cols = st.columns(len(_recent_months))
-            for _sri, _srm in enumerate(_recent_months):
-                _srd = _sr['history'][_srm]
-                _rate = _srd['rate_pct']
-                _rate_str = f"{_rate:.1f}%" if _rate is not None else 'N/A'
-                _delta_color = 'normal' if (_rate or 0) >= 20 else 'inverse'
-                _sr_cols[_sri].metric(_srm, _rate_str, delta=f"{_srd['savings']:+.2f}")
+        # Signature is (expenses, income) — these used to be passed the other way
+        # round, which silently inverted every rate. 'history' is a LIST of
+        # {month, income, expenses, savings_rate_pct}; this read it as a dict
+        # keyed by month and asked for 'rate_pct'/'savings', so it always threw.
+        _sr = _srh(st.session_state.expenses, st.session_state.income)
+        _hist = _sr.get('history') or []
+        if _sr.get('success') and _hist:
+            _recent = _hist[-6:]
+            _sr_cols = st.columns(len(_recent))
+            for _sri, _srd in enumerate(_recent):
+                _rate = _srd.get('savings_rate_pct')
+                _saved = float(_srd.get('income', 0) or 0) - float(_srd.get('expenses', 0) or 0)
+                _sr_cols[_sri].metric(
+                    _srd.get('month', '—'),
+                    f"{_rate:.1f}%" if _rate is not None else 'N/A',
+                    delta=f"{_saved:+,.2f}",
+                )
         else:
             st.info('Add income and expenses to track savings rate.')
     except Exception as _e:
         st.info(f'Savings rate unavailable: {_e}')
 
-    st.divider()
 
     # ── Spending forecast ────────────────────────────────────────────────────
-    st.subheader('Spending Forecast')
+    section('Spending Forecast', 'Linear trend per category, projected to next month.')
+    _fc_notice = None
     try:
-        if USE_LOCAL_BACKEND:
+        # Computed HERE. forecast_spending is pure maths — it was previously
+        # POSTed to Cloud Run along with every expense the user has.
+        if not _has_feature('budget_forecasting'):
+            _locked('Spending forecast')
+            _fc, _fc_notice = {}, True
+        else:
             from backend.analytics import forecast_spending
             _fc = forecast_spending(st.session_state.expenses)
-        else:
-            _resp = _backend_post('/forecast', {'expenses': st.session_state.expenses, 'base_currency': 'USD'})
-            _fc = (_resp.json() if _resp.ok else {'success': False, 'forecasts': {}}) if _resp is not None else {'success': False, 'forecasts': {}}
         if _fc.get('success') and _fc.get('forecasts'):
             st.caption(f"Based on {_fc['based_on_months']} month(s) of history ({_fc['base_currency']} only)")
             _fc_cols = st.columns(3)
             for _fi, (_cat, _info) in enumerate(_fc['forecasts'].items()):
                 _arrow = '↑' if _info['trend'] == 'increasing' else '↓' if _info['trend'] == 'decreasing' else '→'
                 _fc_cols[_fi % 3].metric(f'{_cat} {_arrow}', f"{_info['next_month_forecast']:,.2f}", delta=f"avg {_info['current_avg']:,.2f}")
-        else:
+        elif not _fc_notice:
             st.info('Not enough expense history to generate a forecast yet.')
     except Exception as _e:
         st.info(f'Forecast unavailable: {_e}')
 
-    st.divider()
 
     # ── Anomaly detection ────────────────────────────────────────────────────
-    st.subheader('Unusual Expenses')
+    section('Unusual Expenses', 'Transactions far from their category average.')
+    _ad_notice = None
     try:
-        if USE_LOCAL_BACKEND:
+        # Computed HERE — see the forecast panel above.
+        if not _has_feature('anomaly_detection'):
+            _locked('Anomaly detection')
+            _ad, _ad_notice = {}, True
+        else:
             from backend.analytics import detect_anomalies
             _ad = detect_anomalies(st.session_state.expenses)
-        else:
-            _resp = _backend_post('/detect-anomalies', {'expenses': st.session_state.expenses, 'z_threshold': 2.5})
-            _ad = (_resp.json() if _resp.ok else {'anomalies': []}) if _resp is not None else {'anomalies': []}
         if _ad.get('anomalies'):
             st.caption(f"{_ad['count']} statistically unusual expense(s) detected:")
             for _anom in _ad['anomalies']:
@@ -189,15 +362,15 @@ with tab_dashboard:
                     f"({_dev_sign}{_anom['deviation']:.2f} from {_anom['category_mean']:.2f} avg in {_anom['tags']}, "
                     f"z={_anom['z_score']})"
                 )
-        else:
+        elif not _ad_notice:
+            # Only claim "nothing unusual" when the check actually RAN.
             st.success('No unusual expenses detected.')
     except Exception as _e:
         st.info(f'Anomaly detection unavailable: {_e}')
 
-    st.divider()
 
     # ── Financial health score ───────────────────────────────────────────────
-    st.subheader('Financial Health Score')
+    section('Financial Health Score', 'A 0-100 composite across savings, budgets and debt.')
     try:
         from backend.analytics import financial_health_score as _fhs
         _fhs_data = {
@@ -215,71 +388,73 @@ with tab_dashboard:
                 st.metric('Score', f"{_hs['score']} / 100")
                 st.markdown(f"**Grade: {_grade_colors.get(_hs['grade'], '')} {_hs['grade']}**")
             with _hs_col2:
-                _p = _hs['pillars']
+                # analytics.financial_health_score returns this under 'breakdown';
+                # this panel used to read 'pillars' and so always threw a KeyError.
+                _p = _hs.get('breakdown', {})
                 _p_cols = st.columns(4)
-                _p_cols[0].metric('Savings Rate', f"{_p['savings_rate']:.0f}/100")
-                _p_cols[1].metric('Budget Adherence', f"{_p['budget_adherence']:.0f}/100")
-                _p_cols[2].metric('Subscription Burden', f"{_p['subscription_burden']:.0f}/100")
-                _p_cols[3].metric('Goal Consistency', f"{_p['goal_consistency']:.0f}/100")
+                _p_cols[0].metric('Savings Rate', f"{_p.get('savings_rate', 0):.0f}/100")
+                _p_cols[1].metric('Budget Adherence', f"{_p.get('budget_adherence', 0):.0f}/100")
+                _p_cols[2].metric('Subscription Burden', f"{_p.get('subscription_burden', 0):.0f}/100")
+                _p_cols[3].metric('Goal Consistency', f"{_p.get('goal_consistency', 0):.0f}/100")
     except Exception as _e:
         st.info(f'Health score unavailable: {_e}')
 
-    st.divider()
 
     # ── Subscription renewal alerts ──────────────────────────────────────────
-    st.subheader('Upcoming Renewals')
+    section('Upcoming Renewals', 'Subscriptions billing in the next 30 days.')
     try:
         from backend.analytics import upcoming_renewals as _upcoming_renewals
         _ur = _upcoming_renewals(st.session_state.subscriptions, days_ahead=30)
-        if _ur['upcoming']:
-            st.caption(f"{_ur['count']} subscription(s) renewing in the next 30 days:")
-            for _sub in _ur['upcoming']:
-                _days = _sub['days_until']
-                _label = 'today' if _days == 0 else f'in {_days} day{"s" if _days != 1 else ""}'
+        # analytics.upcoming_renewals returns 'renewals', each carrying
+        # 'next_renewal'. This panel read 'upcoming'/'next_billing_date'/
+        # 'days_until' — none of which exist — so it always threw a KeyError.
+        _renewals = _ur.get('renewals', [])
+        if _renewals:
+            st.caption(f"{_ur.get('count', len(_renewals))} subscription(s) renewing in the next 30 days:")
+            _today = _dtm.now().date()
+            for _sub in _renewals:
+                _when = _sub.get('next_renewal', '')
+                try:
+                    _days = (_dtm.strptime(_when, '%Y-%m-%d').date() - _today).days
+                    _label = ('today' if _days == 0
+                              else f'in {_days} day{"s" if _days != 1 else ""}')
+                except (ValueError, TypeError):
+                    _label = 'soon'
                 st.warning(
-                    f"**{_sub['name']}** — {float(_sub['price']):.2f} {_sub.get('currency','').upper()} "
-                    f"renews {_label} ({_sub['next_billing_date']})"
+                    f"**{_sub.get('name', '—')}** — {float(_sub.get('price', 0) or 0):.2f} "
+                    f"{str(_sub.get('currency', '')).upper()} renews {_label} ({_when})"
                 )
         else:
             st.success('No renewals due in the next 30 days.')
     except Exception as _e:
         st.info(f'Renewal alerts unavailable: {_e}')
 
-    st.divider()
 
     # ── Goal progress ────────────────────────────────────────────────────────
-    st.subheader('Goal Progress')
+    section('Goal Progress', 'How close each savings goal is, and when it lands.')
     try:
         from backend.analytics import goal_progress as _goal_progress
         _gp = _goal_progress(st.session_state.goals)
-        if _gp['goals']:
+        # analytics.goal_progress returns 'saved_estimate' / 'progress_pct';
+        # this panel read 'saved' / 'percent' and so always threw a KeyError.
+        if _gp.get('goals'):
             for _g in _gp['goals']:
-                st.markdown(f"**{_g['name']}** — {_g['saved']:,.2f} / {_g['target']:,.2f} {_g['currency']} · ETA: {_g['eta']}")
-                st.progress(min(1.0, _g['percent'] / 100), text=f"{_g['percent']:.1f}%")
+                _saved = float(_g.get('saved_estimate', 0) or 0)
+                _target = float(_g.get('target', 0) or 0)
+                _pct = float(_g.get('progress_pct', 0) or 0)
+                st.markdown(
+                    f"**{_g.get('name', '—')}** — {_saved:,.2f} / {_target:,.2f} "
+                    f"{str(_g.get('currency', 'USD')).upper()} · ETA: {_g.get('eta', 'unknown')}"
+                )
+                st.progress(min(1.0, _pct / 100), text=f"{_pct:.1f}%")
         else:
             st.info('No goals found. Add a goal to track progress.')
     except Exception as _e:
         st.info(f'Goal progress unavailable: {_e}')
 
-    st.divider()
-
-    # ── Duplicate cleanup ────────────────────────────────────────────────────
-    st.subheader('Data Cleanup')
-    _dup_cols = st.columns(4)
-    for _di, _dup_list in enumerate(['expenses', 'income', 'subscriptions', 'goals']):
-        if _dup_cols[_di].button(f'Remove duplicate {_dup_list}', key=f'dedup_{_dup_list}'):
-            _dup_result = st.session_state.tracker.check_for_duplicates(_dup_list)
-            if _dup_result['success']:
-                st.success(_dup_result['message'])
-                sync_data()
-                st.rerun()
-            else:
-                st.info(_dup_result['message'])
-
-    st.divider()
 
     # ── Natural language query ───────────────────────────────────────────────
-    st.subheader('Ask About Your Finances')
+    section('Ask About Your Finances', 'Natural-language questions answered from your data.')
     _nl_ai_ok = False
     try:
         from backend.ai import is_configured as _ai_configured_nl
@@ -302,69 +477,21 @@ with tab_dashboard:
                         from backend.ai import answer_query as _answer_query
                         _nl_answer = _answer_query(_nl_question, _nl_data)
                     else:
-                        _resp = _backend_post('/query', {'question': _nl_question, 'data': _nl_data})
-                        if _resp is None:
-                            _nl_answer = 'Backend unreachable.'
+                        _resp = _backend_post('/query', {'question': _nl_question, 'data': _nl_data},
+                                                  token=st.session_state.get('pro_token'))
+                        _nl_payload, _nl_notice = _gated(_resp, 'Natural-language queries')
+                        if _nl_notice:
+                            # Same treatment as the other gated panels: say it is
+                            # locked, not "Error 403".
+                            _nl_answer = _nl_notice[1]
                         else:
-                            _nl_answer = _resp.json().get('answer', _resp.text) if _resp.ok else f'Error {_resp.status_code}'
+                            _nl_answer = _nl_payload.get('answer', '(empty response)')
                     st.session_state['nl_last_answer'] = _nl_answer
                 except Exception as _exc:
                     st.error(f'Query failed: {_exc}')
         if st.session_state.get('nl_last_answer'):
             st.markdown(st.session_state['nl_last_answer'])
 
-    st.divider()
-
-    # ── Monthly summary export ───────────────────────────────────────────────
-    st.subheader('Monthly Summary Export')
-    _ms_col1, _ms_col2 = st.columns(2)
-    with _ms_col1:
-        _ms_exp_result = st.session_state.tracker.export_to_pdf('expenses', f'expenses_{st.session_state.current_month}.pdf')
-        if _ms_exp_result['success']:
-            st.download_button(
-                label=f'Download Expenses PDF ({st.session_state.current_month})',
-                data=_ms_exp_result['data'],
-                file_name=f'expenses_{st.session_state.current_month}.pdf',
-                mime='application/pdf',
-                key='ms_exp_pdf',
-            )
-    with _ms_col2:
-        _ms_inc_result = st.session_state.tracker.export_to_pdf('income', f'income_{st.session_state.current_month}.pdf')
-        if _ms_inc_result['success']:
-            st.download_button(
-                label=f'Download Income PDF ({st.session_state.current_month})',
-                data=_ms_inc_result['data'],
-                file_name=f'income_{st.session_state.current_month}.pdf',
-                mime='application/pdf',
-                key='ms_inc_pdf',
-            )
-
-    st.divider()
-
-    # ── Backup & restore ─────────────────────────────────────────────────────
-    st.subheader('Backup & Restore')
-    _bk_col1, _bk_col2 = st.columns(2)
-    with _bk_col1:
-        if st.button('Create backup now', key='create_backup_btn'):
-            _bk_result = st.session_state.tracker.backup_data()
-            if _bk_result['success']:
-                st.success(_bk_result['message'])
-            else:
-                st.error(_bk_result['message'])
-    with _bk_col2:
-        _bk_list = st.session_state.tracker.list_backups()
-        if _bk_list['success'] and _bk_list['backups']:
-            _bk_choice = st.selectbox('Restore from backup', options=_bk_list['backups'], key='restore_select')
-            if st.button('Restore selected backup', key='restore_btn'):
-                _rs_result = st.session_state.tracker.restore_data(_bk_choice)
-                if _rs_result['success']:
-                    st.success(_rs_result['message'])
-                    sync_data()
-                    st.rerun()
-                else:
-                    st.error(_rs_result['message'])
-        else:
-            st.info('No backups found. Create one above.')
 
 # ── Add ──────────────────────────────────────────────────────────────────────
 with tab_add:
@@ -417,8 +544,10 @@ with tab_add:
                                 st.error(f'Suggestion failed: {_exc}')
                     if st.session_state.get('ai_suggested_category'):
                         st.info(f"Suggested category: **{st.session_state['ai_suggested_category']}**")
-        except Exception:
-            pass
+        except Exception as _sect_err:
+            # Was `pass`: a failure here silently removed the whole
+            # section instead of saying anything.
+            st.caption(f'Receipt scan / AI category unavailable: {_sect_err}')
 
         with st.expander('Recurring Expenses', expanded=False):
             if not st.session_state.recurring_expenses:
@@ -472,11 +601,16 @@ with tab_add:
             expense_date = st.date_input('Expense Date', value=_default_date, key='add_exp_date')
             expense_notes = st.text_area('Expense Notes', key='add_exp_notes')
             recurring = st.checkbox('Recurring Expense', key='add_exp_recurring')
+            expense_account = _account_picker('Charge to account',
+                                             'add_expense_account')
             if st.form_submit_button('Add Expense'):
                 if recurring:
                     results = st.session_state.tracker.add_recurring_expense(expense_amount, expense_purchased, expense_category, expense_currency)
                 else:
-                    results = st.session_state.tracker.add_expenses(expense_amount, expense_purchased, expense_category, expense_currency, str(expense_date), expense_notes)
+                    results = st.session_state.tracker.add_expenses(
+                        expense_amount, expense_purchased, expense_category,
+                        expense_currency, str(expense_date), expense_notes,
+                        account_id=expense_account)
                 if results['success']:
                     for k in ('ocr_merchant', 'ocr_total', 'ocr_date', 'ai_suggested_category'):
                         st.session_state.pop(k, None)
@@ -528,11 +662,16 @@ with tab_add:
             income_date = st.date_input('Income Date', key='add_inc_date')
             income_notes = st.text_area('Income Notes', key='add_inc_notes')
             recurring = st.checkbox('Recurring Income', key='add_inc_recurring')
+            income_account = _account_picker('Paid into account',
+                                            'add_income_account')
             if st.form_submit_button('Add Income'):
                 if recurring:
                     results = st.session_state.tracker.add_recurring_income(income_amount, income_source, income_currency)
                 else:
-                    results = st.session_state.tracker.add_income(income_amount, income_source, str(income_date), income_currency, income_notes)
+                    results = st.session_state.tracker.add_income(
+                        income_amount, income_source, str(income_date),
+                        income_currency, income_notes,
+                        account_id=income_account)
                 if results['success']:
                     st.success(results['message'])
                     sync_data()
@@ -562,8 +701,10 @@ with tab_add:
                                 st.session_state['ai_bud_prefill_cat'] = _bcat
                                 st.session_state['ai_bud_prefill_amt'] = _bamt
                                 st.rerun()
-        except Exception:
-            pass
+        except Exception as _sect_err:
+            # Was `pass`: a failure here silently removed the whole
+            # section instead of saying anything.
+            st.caption(f'AI budget recommendations unavailable: {_sect_err}')
 
         _bud_cat_opts = ['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other']
         _ai_bud_cat = st.session_state.get('ai_bud_prefill_cat', None)
@@ -755,70 +896,66 @@ with tab_view_expenses:
     st.subheader('View Expenses')
 
     # ── Spending charts ──────────────────────────────────────────────────────
+    # Native Streamlit charts, not matplotlib: these are vector, interactive,
+    # responsive, and follow the viewer's light/dark theme. The matplotlib
+    # versions rendered fixed-size white PNGs that were unreadable in dark mode
+    # and leaked a figure per rerun.
     if st.session_state.expenses:
         try:
-            import matplotlib.pyplot as _plt
-            from backend.analytics import spending_by_category as _sbc, monthly_totals as _mt
+            import pandas as _pd
+            from backend.analytics import (spending_by_category as _sbc,
+                                           monthly_totals as _mt,
+                                           monthly_comparison as _mc)
 
-            with st.expander('Spending Insights', expanded=False):
+            with st.expander('Spending insights', expanded=False):
                 _chart_col1, _chart_col2 = st.columns(2)
 
-                # Bar chart: category breakdown this month
+                # Category breakdown for the selected month.
+                # by_category is a LIST of {category,total,count,pct} — reading
+                # it as a dict with .keys() was raising on every load.
                 with _chart_col1:
-                    _sbc_result = _sbc(st.session_state.expenses, month=st.session_state.current_month)
-                    _cats = list(_sbc_result['by_category'].keys())
-                    _vals = list(_sbc_result['by_category'].values())
-                    if _cats:
-                        _fig1, _ax1 = _plt.subplots(figsize=(4, 3))
-                        _ax1.barh(_cats, _vals, color='#4F81BD')
-                        _ax1.set_xlabel('Amount (USD)')
-                        _ax1.set_title(f'Spending by Category — {st.session_state.current_month}')
-                        _plt.tight_layout()
-                        st.pyplot(_fig1)
-                        _plt.close(_fig1)
+                    st.caption(f"By category — {st.session_state.current_month}")
+                    _rows = _sbc(st.session_state.expenses,
+                                 month=st.session_state.current_month).get('by_category') or []
+                    if _rows:
+                        _df = _pd.DataFrame(_rows).set_index('category')[['total']]
+                        st.bar_chart(_df, horizontal=True, height=260)
                     else:
-                        st.info('No expenses this month.')
+                        st.info('No expenses in this month.')
 
-                # Line chart: monthly totals over time
+                # Spend per month over all history. `monthly` is also a LIST.
                 with _chart_col2:
-                    _mt_result = _mt(st.session_state.expenses)
-                    _months = list(_mt_result['monthly'].keys())
-                    _month_vals = list(_mt_result['monthly'].values())
-                    if len(_months) >= 2:
-                        _fig2, _ax2 = _plt.subplots(figsize=(4, 3))
-                        _ax2.plot(_months, _month_vals, marker='o', color='#4F81BD')
-                        _ax2.set_ylabel('Total (USD)')
-                        _ax2.set_title('Monthly Spending Trend')
-                        _ax2.tick_params(axis='x', rotation=45)
-                        _plt.tight_layout()
-                        st.pyplot(_fig2)
-                        _plt.close(_fig2)
+                    st.caption('Monthly trend')
+                    _mrows = _mt(st.session_state.expenses).get('monthly') or []
+                    if len(_mrows) >= 2:
+                        _mdf = _pd.DataFrame(_mrows).set_index('month')[['total']]
+                        st.line_chart(_mdf, height=260)
                     else:
-                        st.info('Need at least 2 months of data for a trend chart.')
+                        st.info('Two months of history needed for a trend.')
 
-                # Month comparison chart
-                if len(_months) >= 2:
-                    st.markdown('**Compare two months:**')
+                # Month-on-month comparison
+                _all_months = sorted({str(e.get('date', ''))[:7]
+                                      for e in st.session_state.expenses if e.get('date')})
+                if len(_all_months) >= 2:
+                    st.divider()
+                    st.caption('Compare two months')
                     _cmp_col1, _cmp_col2 = st.columns(2)
-                    _cmp_a = _cmp_col1.selectbox('Month A', options=_months, index=max(0, len(_months)-2), key='cmp_month_a')
-                    _cmp_b = _cmp_col2.selectbox('Month B', options=_months, index=len(_months)-1, key='cmp_month_b')
+                    _cmp_a = _cmp_col1.selectbox('Month A', _all_months,
+                                                 index=len(_all_months) - 2, key='cmp_month_a')
+                    _cmp_b = _cmp_col2.selectbox('Month B', _all_months,
+                                                 index=len(_all_months) - 1, key='cmp_month_b')
                     if _cmp_a != _cmp_b:
-                        from backend.analytics import monthly_comparison as _mc
-                        _cmp = _mc(st.session_state.expenses, _cmp_a, _cmp_b)
-                        if _cmp['categories']:
-                            import numpy as _np
-                            _fig3, _ax3 = _plt.subplots(figsize=(8, 3))
-                            _x = _np.arange(len(_cmp['categories']))
-                            _w = 0.35
-                            _ax3.bar(_x - _w/2, _cmp['values_a'], _w, label=_cmp_a, color='#4F81BD')
-                            _ax3.bar(_x + _w/2, _cmp['values_b'], _w, label=_cmp_b, color='#ED7D31')
-                            _ax3.set_xticks(_x)
-                            _ax3.set_xticklabels(_cmp['categories'], rotation=30, ha='right')
-                            _ax3.legend()
-                            _ax3.set_title(f'{_cmp_a} vs {_cmp_b}')
-                            _plt.tight_layout()
-                            st.pyplot(_fig3)
-                            _plt.close(_fig3)
+                        # returns {'comparison': [{category, <month_a>, <month_b>, change, ...}]}
+                        _crows = _mc(st.session_state.expenses, _cmp_a, _cmp_b).get('comparison') or []
+                        if _crows:
+                            _cdf = _pd.DataFrame(_crows).set_index('category')
+                            _cols = [c for c in (_cmp_a, _cmp_b) if c in _cdf.columns]
+                            if _cols:
+                                st.bar_chart(_cdf[_cols], height=280)
+                        else:
+                            st.info('Nothing to compare in those months.')
+                    else:
+                        st.caption('Pick two different months.')
         except Exception as _chart_err:
             st.info(f'Charts unavailable: {_chart_err}')
 
@@ -867,10 +1004,10 @@ with tab_view_expenses:
                 st.rerun()
             except Exception as _e:
                 st.error(f'Import failed: {_e}')
-    result = st.session_state.tracker.export_to_csv('expenses', 'expenses.csv')
+    result = st.session_state.tracker.export_to_csv('expenses')
     if result['success']:
-        st.download_button(label='Export expenses to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='expenses.csv', mime='text/csv', key='exp_download')
-    pdf_result = st.session_state.tracker.export_to_pdf('expenses', 'expenses.pdf')
+        st.download_button(label='Export expenses to .csv', data=result['bytes'], file_name='expenses.csv', mime='text/csv', key='exp_download')
+    pdf_result = st.session_state.tracker.export_to_pdf('expenses', title='Expenses')
     if pdf_result['success']:
         st.download_button(label='Export expenses to .pdf', data=pdf_result['data'], file_name='expenses.pdf', mime='application/pdf', key='exp_pdf_download')
 
@@ -881,26 +1018,24 @@ with tab_view_income:
     # Income vs expenses chart
     if st.session_state.income or st.session_state.expenses:
         try:
-            import matplotlib.pyplot as _plt_inc
+            import pandas as _pd_inc
             from backend.analytics import income_vs_expenses as _ive
-            with st.expander('Income vs Expenses', expanded=False):
-                _ive_result = _ive(st.session_state.income, st.session_state.expenses)
-                if len(_ive_result['months']) >= 1:
-                    _fig_ive, _ax_ive = _plt_inc.subplots(figsize=(8, 3))
-                    import numpy as _np_inc
-                    _x_ive = _np_inc.arange(len(_ive_result['months']))
-                    _w_ive = 0.35
-                    _ax_ive.bar(_x_ive - _w_ive/2, _ive_result['income'], _w_ive, label='Income', color='#70AD47')
-                    _ax_ive.bar(_x_ive + _w_ive/2, _ive_result['expenses'], _w_ive, label='Expenses', color='#ED7D31')
-                    _ax_ive.set_xticks(_x_ive)
-                    _ax_ive.set_xticklabels(_ive_result['months'], rotation=45, ha='right')
-                    _ax_ive.legend()
-                    _ax_ive.set_title('Monthly Income vs Expenses')
-                    _plt_inc.tight_layout()
-                    st.pyplot(_fig_ive)
-                    _plt_inc.close(_fig_ive)
+            with st.expander('Income vs expenses', expanded=False):
+                # Signature is (expenses, income) — these were passed the other
+                # way round, and the result is {'monthly': [ {month, income,
+                # expenses, net} ]}, not separate 'months'/'income' lists.
+                _rows = _ive(st.session_state.expenses,
+                             st.session_state.income).get('monthly') or []
+                if _rows:
+                    _df = _pd_inc.DataFrame(_rows).set_index('month')
+                    st.bar_chart(_df[['income', 'expenses']], height=300)
+                    _latest = _rows[-1]
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric(f"Income ({_latest['month']})", f"{_latest['income']:,.2f}")
+                    _c2.metric('Expenses', f"{_latest['expenses']:,.2f}")
+                    _c3.metric('Net', f"{_latest['net']:,.2f}", delta=f"{_latest['net']:+,.0f}")
                 else:
-                    st.info('Not enough data for chart.')
+                    st.info('Not enough data for a chart yet.')
         except Exception as _e_ive:
             st.info(f'Chart unavailable: {_e_ive}')
 
@@ -948,10 +1083,10 @@ with tab_view_income:
                 st.rerun()
             except Exception as _e:
                 st.error(f'Import failed: {_e}')
-    result = st.session_state.tracker.export_to_csv('income', 'income.csv')
+    result = st.session_state.tracker.export_to_csv('income')
     if result['success']:
-        st.download_button(label='Export income to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='income.csv', mime='text/csv', key='inc_download')
-    pdf_result = st.session_state.tracker.export_to_pdf('income', 'income.pdf')
+        st.download_button(label='Export income to .csv', data=result['bytes'], file_name='income.csv', mime='text/csv', key='inc_download')
+    pdf_result = st.session_state.tracker.export_to_pdf('income', title='Income')
     if pdf_result['success']:
         st.download_button(label='Export income to .pdf', data=pdf_result['data'], file_name='income.pdf', mime='application/pdf', key='inc_pdf_download')
 
@@ -990,14 +1125,15 @@ with tab_view_subscriptions:
                 st.rerun()
             except Exception as _e:
                 st.error(f'Import failed: {_e}')
-    result = st.session_state.tracker.export_to_csv('subscriptions', 'subscriptions.csv')
+    result = st.session_state.tracker.export_to_csv('subscriptions')
     if result['success']:
-        st.download_button(label='Export subscriptions to .csv', data=result['data'].to_csv(index=False).encode('utf-8'), file_name='subscriptions.csv', mime='text/csv', key='sub_download')
+        st.download_button(label='Export subscriptions to .csv', data=result['bytes'], file_name='subscriptions.csv', mime='text/csv', key='sub_download')
 
 # ── Assets & Liabilities (Max only) ──────────────────────────────────────────
 with tab_net_worth:
     if 'net_worth' not in st.session_state.get('pro_features', []):
-        st.info('Assets & Liabilities tracking is a **Max** feature. Activate a Max license on the Pro Features page.')
+        upsell('Assets & liabilities', 'Max',
+               detail='Record what you own and what you owe, in any currency.')
         st.stop()
     _CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'THB', 'INR', 'BTC', 'ETH', 'USDC', 'SOL', 'Other']
 

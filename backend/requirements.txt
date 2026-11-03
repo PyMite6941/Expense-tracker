@@ -1,14 +1,58 @@
+# GRID Expense Tracker — analytics / AI / OCR service (Cloud Run: expense-backend)
+# Built from backend/Dockerfile (python:3.13.7-slim).
+
+# ── Web framework ────────────────────────────────────────────────────────────
 fastapi>=0.110.0,<1.0.0
 uvicorn[standard]>=0.29.0,<1.0.0
 python-multipart>=0.0.9,<1.0.0
-python-jose[cryptography]>=3.3.0,<4.0.0
-google-cloud-firestore>=2.13.0,<3.0.0
-google-cloud-vision>=3.7.0,<4.0.0
-requests>=2.31.0,<3.0.0
-pandas>=2.0.0,<3.0.0
 pydantic>=2.0.0,<3.0.0
-crewai>=0.80.0,<1.0.0
-fastembed>=0.3.0,<1.0.0
+# Imported directly in server.py (BaseHTTPMiddleware, JSONResponse). Unpinned so
+# FastAPI keeps ownership of the compatible range — do not add bounds here.
+starlette
+
+# ── Licence verification + rate limiting ─────────────────────────────────────
+# PyJWT, NOT python-jose. python-jose 3.3.0 has three advisories on this exact
+# path (PYSEC-2024-232 algorithm confusion, PYSEC-2024-233 JWE bomb,
+# PYSEC-2025-185 JWE decrypt DoS with no fix) and depends on `ecdsa`, which has
+# an unfixed Minerva timing attack (PYSEC-2026-1325). PyJWT needs only
+# `cryptography`. HS256 is wire-identical, so licences already issued still verify.
+PyJWT>=2.10,<3                          # verified 2.12.1
+# Pinned above the chain-verification and OpenSSL advisories in 48.x.
+cryptography>=50.0
 slowapi>=0.1.9,<1.0.0
+
+# ── Google Cloud ─────────────────────────────────────────────────────────────
+google-cloud-firestore>=2.13.0,<3.0.0   # licence IP-activation ledger
+google-cloud-vision>=3.7.0,<4.0.0       # receipt OCR
+
+# ── AI ───────────────────────────────────────────────────────────────────────
+# The [litellm] extra is what pins litellm >=1.84.0. Without it the resolver
+# settles on 1.74.9, which carries 11 advisories. The extra is the only way to
+# get the patched range.
+#
+# KNOWN, NOT FIXABLE HERE: crewai hard-pins `chromadb~=1.1.0`, and every 1.1.x
+# carries PYSEC-2026-311 plus CVE-2026-45830/45831/45833. It cannot be raised
+# from this file — crewai upstream has to move first. chromadb is only reached
+# through the CrewAI crew on /advanced-categorize (Pro, 5/min, licence-gated),
+# so the exposure is limited to authenticated paying callers, but it is real
+# and should be re-checked when crewai releases.
+crewai[litellm]>=1.15,<2
+# Never imported by name — CrewAI loads it dynamically as the embedder provider
+# ("provider": "fastembed" in bots.py). Removing it breaks the crew at runtime
+# with no import error to point at it.
+fastembed>=0.3.0,<1.0.0
+
+# ── Bots (phone_connect.py) ──────────────────────────────────────────────────
 python-telegram-bot>=20.0,<22.0
 discord.py>=2.0,<3.0
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+requests>=2.32.0,<3.0.0
+# urllib3 <2.7 mishandles ranged reads and cross-origin redirects
+# (PYSEC-2026-141/142); requests does not pin it high enough itself.
+urllib3>=2.7
+pandas>=2.0.0,<4.0.0                    # bots.py
+# phone_connect.py prefers stdlib tomllib (3.11+) and only falls back to tomli
+# on older interpreters. The Dockerfile is 3.13, so this installs nowhere in
+# production — it is here for anyone running the service locally on 3.10.
+tomli>=2.0; python_version < "3.11"

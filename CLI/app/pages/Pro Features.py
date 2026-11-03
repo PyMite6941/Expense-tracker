@@ -7,13 +7,16 @@ import streamlit as st
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from CLI.core.core_stuff import ExpenseTracker
 from CLI.app.streamlit_setup import init_st, BACKEND_URL, AUTH_SERVICE_URL
+from CLI.app.config import LICENSE_STORE_URL
+from CLI.app.theme import page_setup, render_sidebar, upsell
 
+page_setup('Pro Features', '✨')
 init_st()
 
+render_sidebar()
 _BACKEND  = st.session_state.get('backend_url',  BACKEND_URL)
 _AUTH     = st.session_state.get('auth_service_url', AUTH_SERVICE_URL)
 
-st.set_page_config(page_title='Pro Features', page_icon='⭐')
 st.title('⭐ Pro Features')
 
 
@@ -76,6 +79,17 @@ if st.session_state.get('pro_token'):
         f"{st.session_state.get('pro_tier', 'pro').upper()} tier",
         icon='🔑',
     )
+else:
+    # This is the page every gate in the app points at, so it must be possible
+    # to BUY here, not just paste a key you were assumed to already have.
+    st.caption('No key yet? Pro unlocks forecasting, anomaly detection, AI '
+               'categorisation, receipt OCR and the phone bots. Max adds net '
+               'worth, the debt planner, coaching and email import.')
+    _buy1, _buy2, _ = st.columns([1, 1, 3])
+    with _buy1:
+        st.link_button('Get Pro — $9/mo →', LICENSE_STORE_URL, type='primary')
+    with _buy2:
+        st.link_button('Get Max — $20/mo', LICENSE_STORE_URL)
 
 
 st.divider()
@@ -179,7 +193,8 @@ st.header('AI Advanced Categorization')
 st.caption('Requires an active Pro or Max license. Runs CrewAI agents server-side.')
 
 if not st.session_state.get('pro_token'):
-    st.info('Activate your license key above to unlock this section.')
+    upsell('Advanced AI categorisation', 'Pro',
+           detail='A CrewAI crew that re-categorises your spending and explains the patterns.')
     st.stop()
 
 context = st.text_input(

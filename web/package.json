@@ -1,0 +1,21 @@
+{
+  "name": "grid-expense-tracker-web",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Privacy-first expense tracker — all data stays local; export/import a single JSON.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.13.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

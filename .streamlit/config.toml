@@ -1,0 +1,15 @@
+# Base Streamlit chrome. CLI/app/theme.py layers the custom look on top.
+# Committed on purpose: this file is what makes the HOSTED deployment look
+# identical to a local run. Keep the palette in sync with theme.py.
+
+[theme]
+primaryColor = "#4f46e5"
+font = "sans serif"
+baseRadius = "0.6rem"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false
+
+[browser]
+gatherUsageStats = false

@@ -3,10 +3,80 @@
 .devcontainer
 __pycache__
 nul
-*.json
 *.csv
 *.pdf
 *.md
-.env
 pdf_converter.py
 test_backend.py
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# Named explicitly rather than relying on a blanket `*.json`. The repo is
+# PUBLIC, so this list is the last line of defence — add to it, never remove.
+.env
+.env.*
+!.env.example
+!*.env.example
+# GCP service-account keys arrive under many names, so match loosely rather
+# than listing the ones seen so far. A missed pattern here is a leaked key.
+key.json
+**/key.json
+*key*.json
+*credentials*.json
+*service-account*.json
+*serviceaccount*.json
+*-sa.json
+*sa-*.json
+*.pem
+*.p12
+*.key
+*.pfx
+*.jks
+
+# Written at runtime by the Phone Connect and Email Import pages. Holds a Gmail
+# APP PASSWORD plus the Telegram and Discord bot tokens — it is a secrets file
+# that happens to be named like config, and it lives in the repo root.
+.bot_config.json
+**/.bot_config.json
+
+# ── User finance data (privacy, not secrecy) ─────────────────────────────────
+# These hold real expense/income records. Never commit them.
+data.json
+rules.json
+**/data.json
+backups/
+
+# Generated exports. export_to_csv / export_to_pdf / the Monthly Summary page
+# all write these into whatever directory the app was started from, which is
+# normally the repo root. *.csv and *.pdf are ignored wholesale above; these are
+# named too so the intent survives if those broad rules are ever narrowed.
+expenses.csv
+income.csv
+subscriptions.csv
+monthly_summary.pdf
+expenses*.pdf
+income*.pdf
+
+# Somewhere to drop receipt images without them landing in a public repo.
+receipts/
+
+# ── Local tooling ────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+licenses.db
+*.sqlite
+*.sqlite3
+
+# ── Node / web ───────────────────────────────────────────────────────────────
+node_modules/
+web/dist/
+.vercel
+
+# NOTE: `*.json` used to be ignored wholesale. That also excluded
+# web/package.json, web/package-lock.json and web/vercel.json — without which
+# the Vercel build of web/ cannot run at all — while giving only incidental
+# cover to the real secrets, which are now listed above by name.
+
+# Internal working notes. NOT for the public repo — it maps the GCP project,
+# the exact deploy commands, which Secret Manager entries exist and what the
+# admin endpoints are. No secret values, but it is reconnaissance material.
+CLAUDE.md
+**/CLAUDE.md
