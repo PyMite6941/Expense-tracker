@@ -13,13 +13,14 @@ on:
 permissions:
   contents: read
   id-token: write
+  issues: write   # to report a failed deploy (they failed silently Jul-Nov 2026)
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Fails fast with a clear message if a secret is missing rather than
       # surfacing the confusing "specify exactly one of..." auth error.
@@ -41,13 +42,13 @@ jobs:
           fi
 
       - id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
 
       - name: Deploy to Cloud Run
         run: |
@@ -57,3 +58,14 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated \
             --project ${{ secrets.GCP_PROJECT_ID }}
+
+      # A failed deploy means production silently keeps running old code.
+      # Open an issue so GitHub emails the owner.
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create deploy-failed --color D93F0B 2>/dev/null || true
+          gh issue create --label deploy-failed             --title "Backend deploy failed: ${GITHUB_SHA::7}"             --body "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Production is still on the previous revision."

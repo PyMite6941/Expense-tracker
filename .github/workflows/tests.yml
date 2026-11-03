@@ -12,10 +12,10 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       # Only what CLI/core needs; the full requirements.txt pulls in the UI and AI stacks.
-      - run: pip install pytest pandas matplotlib reportlab requests cryptography
+      - run: pip install pytest pandas matplotlib reportlab requests cryptography fastapi slowapi httpx pyjwt
       - run: pytest -q

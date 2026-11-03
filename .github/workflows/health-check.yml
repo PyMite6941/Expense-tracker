@@ -1,0 +1,65 @@
+name: Health check
+
+# Pings both Cloud Run services. If either is down, opens (or updates) one
+# GitHub issue labelled "outage" (GitHub emails the repo owner); closes it
+# automatically when both are healthy again.
+# Note: GitHub pauses scheduled workflows in public repos after 60 days with
+# no commits; re-enable from the Actions tab if that happens.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check services
+        id: check
+        run: |
+          down=()
+          for url in \
+            https://expense-backend-690527435721.us-central1.run.app/health \
+            https://auth-service-690527435721.us-central1.run.app/health; do
+            # Cold starts can take a while; retry before calling it down.
+            ok=0
+            for attempt in 1 2 3; do
+              code=$(curl -s -o /dev/null -m 30 -w '%{http_code}' "$url" || echo 000)
+              if [ "$code" = "200" ]; then ok=1; break; fi
+              sleep 20
+            done
+            [ $ok -eq 1 ] || down+=("$url (HTTP $code)")
+          done
+          {
+            echo "down<<EOF"
+            printf '%s\n' "${down[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "count=${#down[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update outage issue
+        if: steps.check.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DOWN: ${{ steps.check.outputs.down }}
+        run: |
+          gh label create outage --color B60205 --description "Service down" 2>/dev/null || true
+          body=$(printf 'Health check failed at %s UTC:\n\n%s\n\nPaid features are unavailable while this is open. Check Cloud Run logs and GCP billing.' "$(date -u '+%Y-%m-%d %H:%M')" "$DOWN")
+          n=$(gh issue list --label outage --state open --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"
+          else gh issue create --title "Outage: Finance Kit service down" --label outage --body "$body"; fi
+
+      - name: Close outage issue on recovery
+        if: steps.check.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for n in $(gh issue list --label outage --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Both services healthy again at $(date -u '+%Y-%m-%d %H:%M') UTC."
+          done
