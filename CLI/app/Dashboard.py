@@ -993,17 +993,19 @@ with tab_view_expenses:
     with st.form('import_expenses_form', clear_on_submit=True):
         uploaded_csv = st.file_uploader('Import expenses from .csv', type=['csv'], key='expenses_csv_upload')
         if st.form_submit_button('Import') and uploaded_csv:
-            import pandas as _pd
             try:
-                preview = _pd.read_csv(uploaded_csv)
-                st.dataframe(preview.head(3))
-                uploaded_csv.seek(0)
-                st.session_state.tracker.import_from_csv('expenses', uploaded_csv)
-                sync_data()
-                st.success(f'Imported {len(preview)} rows successfully.')
-                st.rerun()
+                _r = st.session_state.tracker.import_from_csv('expenses', uploaded_csv)
             except Exception as _e:
-                st.error(f'Import failed: {_e}')
+                _r = {'success': False, 'message': f'Import failed: {_e}'}
+            if _r['success']:
+                sync_data()
+                # Shown after the rerun (a message written before st.rerun() is never seen)
+                st.session_state['_import_flash_expenses'] = _r['message']
+                st.rerun()
+            else:
+                st.error(_r['message'])
+    if st.session_state.get('_import_flash_expenses'):
+        st.success(st.session_state.pop('_import_flash_expenses'))
     result = st.session_state.tracker.export_to_csv('expenses')
     if result['success']:
         st.download_button(label='Export expenses to .csv', data=result['bytes'], file_name='expenses.csv', mime='text/csv', key='exp_download')
@@ -1072,17 +1074,19 @@ with tab_view_income:
     with st.form('import_income_form', clear_on_submit=True):
         uploaded_csv = st.file_uploader('Import income from .csv', type=['csv'], key='income_csv_upload')
         if st.form_submit_button('Import') and uploaded_csv:
-            import pandas as _pd
             try:
-                preview = _pd.read_csv(uploaded_csv)
-                st.dataframe(preview.head(3))
-                uploaded_csv.seek(0)
-                st.session_state.tracker.import_from_csv('income', uploaded_csv)
-                sync_data()
-                st.success(f'Imported {len(preview)} rows successfully.')
-                st.rerun()
+                _r = st.session_state.tracker.import_from_csv('income', uploaded_csv)
             except Exception as _e:
-                st.error(f'Import failed: {_e}')
+                _r = {'success': False, 'message': f'Import failed: {_e}'}
+            if _r['success']:
+                sync_data()
+                # Shown after the rerun (a message written before st.rerun() is never seen)
+                st.session_state['_import_flash_income'] = _r['message']
+                st.rerun()
+            else:
+                st.error(_r['message'])
+    if st.session_state.get('_import_flash_income'):
+        st.success(st.session_state.pop('_import_flash_income'))
     result = st.session_state.tracker.export_to_csv('income')
     if result['success']:
         st.download_button(label='Export income to .csv', data=result['bytes'], file_name='income.csv', mime='text/csv', key='inc_download')
@@ -1114,17 +1118,19 @@ with tab_view_subscriptions:
     with st.form('import_subscriptions_form', clear_on_submit=True):
         uploaded_csv = st.file_uploader('Import subscriptions from .csv', type=['csv'], key='subscriptions_csv_upload')
         if st.form_submit_button('Import') and uploaded_csv:
-            import pandas as _pd
             try:
-                preview = _pd.read_csv(uploaded_csv)
-                st.dataframe(preview.head(3))
-                uploaded_csv.seek(0)
-                st.session_state.tracker.import_from_csv('subscriptions', uploaded_csv)
-                sync_data()
-                st.success(f'Imported {len(preview)} rows successfully.')
-                st.rerun()
+                _r = st.session_state.tracker.import_from_csv('subscriptions', uploaded_csv)
             except Exception as _e:
-                st.error(f'Import failed: {_e}')
+                _r = {'success': False, 'message': f'Import failed: {_e}'}
+            if _r['success']:
+                sync_data()
+                # Shown after the rerun (a message written before st.rerun() is never seen)
+                st.session_state['_import_flash_subscriptions'] = _r['message']
+                st.rerun()
+            else:
+                st.error(_r['message'])
+    if st.session_state.get('_import_flash_subscriptions'):
+        st.success(st.session_state.pop('_import_flash_subscriptions'))
     result = st.session_state.tracker.export_to_csv('subscriptions')
     if result['success']:
         st.download_button(label='Export subscriptions to .csv', data=result['bytes'], file_name='subscriptions.csv', mime='text/csv', key='sub_download')

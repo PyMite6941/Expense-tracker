@@ -927,23 +927,72 @@ class ExpenseTracker():
         return {'success': True, 'message': f'Liability {liability_id} deleted'}
 
     # Import from .csv file
+    # Columns a row must have to be usable. Anything else used to be stored
+    # verbatim, so a bank export landed as {'Posting Date':..., 'Details':...}
+    # and every page that reads expense['date'] crashed.
+    IMPORT_REQUIRED = {
+        'expenses':{'price','purchased','date'},
+        'income':{'amount','source','date'},
+        'subscriptions':{'name','price'},
+    }
+    _IMPORT_NUMERIC = ('price','amount','value','balance','monthContribution')
+
     def import_from_csv(self,listName:Optional[str],filename:Optional[str]) -> Dict[str,Any]:
-        # Define the list to process
-        result = self.open_file()
-        data = result['data']
-        listToProcess = data[listName]
-        df = pd.read_csv(filename)
+        import io as _io
+        display_name = getattr(filename, 'name', filename)
+        # Read the bytes once so they can be handed to the bank importer too
+        if hasattr(filename,'getvalue'):
+            raw = filename.getvalue()
+        elif hasattr(filename,'read'):
+            raw = filename.read()
+        else:
+            with open(filename,'rb') as fh:
+                raw = fh.read()
+        try:
+            # index_col=False: trailing commas must not shift every column left
+            df = pd.read_csv(_io.BytesIO(raw),index_col=False)
+        except Exception as e:
+            return {'success':False,'message':f'Could not read {display_name}: {e}'}
+        # Accept this app's own export headings ('Date','Item','Amount'...) as well as field names
+        heading_to_field = {h.lower():f for f,h in self.EXPORT_COLUMNS.get(listName,[])}
+        df = df.rename(columns=lambda c: heading_to_field.get(str(c).strip().lower(),str(c).strip()))
+        missing = self.IMPORT_REQUIRED.get(listName,set()) - set(df.columns)
+        if missing:
+            # Not our format. If it is a bank statement, import it properly instead.
+            if listName in ('expenses','income'):
+                result = self.import_bank_statement(raw)
+                if result['success']:
+                    result['message'] = 'Detected a bank statement. ' + result['message']
+                    return result
+            return {'success':False,
+                    'message':f"{display_name} is missing column(s): {', '.join(sorted(missing))}. "
+                              "Bank exports go through Import statement."}
+        # NaN is not valid JSON; blanks become None
+        df = df.astype(object).where(pd.notna(df),None)
         # Drop any id column from CSV — we assign fresh IDs to avoid conflicts
         df = df.drop(columns=['id'], errors='ignore')
         newData = df.to_dict('records')
+        for record in newData:
+            for k in self._IMPORT_NUMERIC:
+                if k in record and isinstance(record[k],str):
+                    record[k] = _bank.parse_amount(record[k])
+            if isinstance(record.get('currency'),str):
+                record['currency'] = record['currency'].strip().lower() or 'usd'
+            if 'account_id' in record:
+                try:
+                    record['account_id'] = int(record['account_id']) if record['account_id'] is not None else None
+                except (TypeError,ValueError):
+                    record['account_id'] = None
+        # Define the list to process
+        data = self.open_file()['data']
+        listToProcess = data.get(listName) or []
         max_id = max((item.get('id', 0) for item in listToProcess), default=0)
         for i, record in enumerate(newData, start=1):
             record['id'] = max_id + i
         listToProcess.extend(newData)
         data[listName] = listToProcess
         self.write_file(data)
-        display_name = getattr(filename, 'name', filename)
-        return {'success':True,'message':f'Imported {display_name} successfully'}
+        return {'success':True,'message':f'Imported {len(newData)} {listName} from {display_name}'}
 
     # ── Bank statements ──────────────────────────────────────────────────────
     # Two steps so the UI can show a preview the user edits before anything is

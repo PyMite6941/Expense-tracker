@@ -146,3 +146,38 @@ class TestTrackerImport:
         r = tracker.export_monthly_report("2026-03", "csv", str(out))
         assert r["success"] and out.exists()
         assert r["data"]["total_spent"] == 47.49 and r["data"]["total_income"] == 2500
+
+
+class TestLegacyCsvImport:
+    """import_from_csv used to store any CSV verbatim (bank columns, NaN)."""
+
+    CHASE = (b"Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #\n"
+             b"DEBIT,02/03/2026,STARBUCKS 123,-5.75,DEBIT_CARD,1994.25,,\n"
+             b"CREDIT,02/05/2026,ACME PAYROLL,2500.00,ACH_CREDIT,4312.15,,\n")
+
+    def test_bank_statement_is_routed_to_bank_import(self, tracker, tmp_path):
+        p = tmp_path / "chase.csv"
+        p.write_bytes(self.CHASE)
+        r = tracker.import_from_csv("expenses", str(p))
+        assert r["success"] and "bank statement" in r["message"]
+        data = tracker.open_file()["data"]
+        assert data["expenses"][0]["price"] == 5.75 and data["expenses"][0]["date"] == "2026-02-03"
+        assert data["income"][0]["amount"] == 2500
+
+    def test_own_export_round_trips(self, tracker, tmp_path):
+        tracker.add_expenses(1234.5, "Laptop", "Tech", "gbp", "2026-02-01", "")
+        out = tmp_path / "e.csv"
+        tracker.export_to_csv("expenses", str(out))
+        other = ExpenseTracker(filename=str(tmp_path / "other.json"))
+        assert other.import_from_csv("expenses", str(out))["success"]
+        e = other.open_file()["data"]["expenses"][0]
+        assert (e["price"], e["purchased"], e["currency"], e["date"]) == (1234.5, "Laptop", "gbp", "2026-02-01")
+        assert e["notes"] is None  # blank cell -> None, never NaN
+        json.dumps(other.open_file()["data"], allow_nan=False)
+
+    def test_unknown_csv_is_rejected_not_stored(self, tracker, tmp_path):
+        p = tmp_path / "x.csv"
+        p.write_bytes(b"foo,bar\n1,2\n")
+        r = tracker.import_from_csv("expenses", str(p))
+        assert not r["success"] and "missing column" in r["message"]
+        assert tracker.open_file()["data"]["expenses"] == []
