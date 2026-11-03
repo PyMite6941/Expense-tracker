@@ -21,16 +21,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Fails fast with a clear message if the secret is missing rather than
+      # Fails fast with a clear message if a secret is missing rather than
       # surfacing the confusing "specify exactly one of..." auth error.
+      # Auth is keyless (WIF) — there is no GCP_SA_KEY; org policy blocks JSON keys.
       - name: Verify secrets are set
         env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         run: |
           missing=()
-          [ -z "$GCP_SA_KEY" ]     && missing+=("GCP_SA_KEY")
-          [ -z "$GCP_PROJECT_ID" ] && missing+=("GCP_PROJECT_ID")
+          [ -z "$GCP_PROJECT_ID" ]      && missing+=("GCP_PROJECT_ID")
+          [ -z "$GCP_WIF_PROVIDER" ]    && missing+=("GCP_WIF_PROVIDER")
+          [ -z "$GCP_SERVICE_ACCOUNT" ] && missing+=("GCP_SERVICE_ACCOUNT")
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Missing required secret(s): ${missing[*]}"
             echo "Go to Settings → Secrets and variables → Actions and add them."
