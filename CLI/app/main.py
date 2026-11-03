@@ -45,6 +45,7 @@ inject_css(hide_sidebar_nav=True)
 PAGE_SPECS = [
     ("Dashboard.py",                 "Overview",  "🏠", "overview"),
     ("pages/Accounts.py",            "Accounts",  "🏦", "accounts"),
+    ("pages/Bank Import.py",         "Statements", "🧾", "statements"),
     ("pages/Monthly Summary.py",     "Monthly",   "📅", "monthly"),
     ("pages/Recurring Expenses.py",  "Recurring", "🔁", "recurring"),
     ("pages/Pro Features.py",        "Pro",       "✨", "pro"),

@@ -22,6 +22,11 @@ except ImportError:  # allow running as a top-level script / flat import
                          ACCOUNT_TYPE_FIELDS,
                          apply_account_type as _apply_account_type,
                          normalize_blob)
+# Bank-statement import and monthly reports (pure, stdlib-only modules)
+try:
+    from . import bank_import as _bank, reports as _reports
+except ImportError:
+    import bank_import as _bank, reports as _reports
 
 class ExpenseTracker():
     # Initialize class variables
@@ -940,6 +945,104 @@ class ExpenseTracker():
         display_name = getattr(filename, 'name', filename)
         return {'success':True,'message':f'Imported {display_name} successfully'}
 
+    # ── Bank statements ──────────────────────────────────────────────────────
+    # Two steps so the UI can show a preview the user edits before anything is
+    # saved: preview_bank_statement() parses + categorizes + flags duplicates,
+    # commit_bank_import() writes the (possibly edited) rows in ONE write.
+    def preview_bank_statement(self,source:Any,dayfirst:Optional[bool]=None,
+                               outflow_positive:Optional[bool]=None,
+                               rules:Optional[Dict[str,str]]=None) -> Dict[str,Any]:
+        try:
+            parsed = _bank.parse_statement(source,dayfirst=dayfirst,outflow_positive=outflow_positive)
+        except _bank.StatementError as e:
+            return {'success':False,'message':str(e)}
+        data = self.open_file()['data']
+        cat = _bank.Categorizer(user_rules=rules,history=_bank.history_pairs(data))
+        for t in parsed.transactions:
+            t.category, t.category_source = cat.categorize(t.description,t.amount,t.bank_category)
+        dupes = _bank.mark_duplicates(parsed.transactions,_bank.existing_fingerprints(data))
+        txns = [t.to_dict() for t in parsed.transactions]
+        n_out = sum(1 for t in txns if t['kind'] == 'expense')
+        return {'success':True,
+                'message':f'Found {len(txns)} transactions ({n_out} out, {len(txns)-n_out} in, {dupes} already imported)',
+                'transactions':txns,
+                'meta':{'columns':parsed.columns,'date_format':parsed.date_format,
+                        'ambiguous_dates':parsed.ambiguous_dates,'sign_guessed':parsed.sign_guessed,
+                        'skipped_rows':parsed.skipped_rows,'currency':parsed.currency,
+                        'duplicates':dupes,
+                        'uncategorized':sum(1 for t in txns if t['category'] == _bank.UNCATEGORIZED)}}
+
+    def commit_bank_import(self,transactions:List[Dict[str,Any]],currency:str='usd',
+                           account_id:Optional[int]=None,source_name:str='bank statement',
+                           include_duplicates:bool=False) -> Dict[str,Any]:
+        data = self.open_file()['data']
+        expenses = data.get('expenses') or []
+        income = data.get('income') or []
+        next_e, next_i = self.assign_id(expenses), self.assign_id(income)
+        added_e = added_i = skipped = 0
+        note = f'Imported from {source_name}'
+        for t in transactions:
+            if (t.get('duplicate') and not include_duplicates) or t.get('include') is False:
+                skipped += 1
+                continue
+            amt = round(abs(float(t['amount'])),2)
+            name = t.get('merchant') or t.get('description') or 'Unknown'
+            cur = (t.get('currency') or currency or 'usd').lower()
+            if float(t['amount']) < 0:
+                expenses.append({'id':next_e,'price':amt,'purchased':name,
+                                 'tags':t.get('category') or _bank.UNCATEGORIZED,
+                                 'date':t['date'],'currency':cur,'notes':note,
+                                 'account_id':account_id,
+                                 'bank_description':t.get('description','')})
+                next_e += 1; added_e += 1
+            else:
+                income.append({'id':next_i,'amount':amt,'source':name,'date':t['date'],
+                               'currency':cur,'notes':note,'account_id':account_id,
+                               'bank_description':t.get('description','')})
+                next_i += 1; added_i += 1
+        if added_e or added_i:
+            data['expenses'], data['income'] = expenses, income
+            self.write_file(data)
+        return {'success':True,'added_expenses':added_e,'added_income':added_i,'skipped':skipped,
+                'message':f'Imported {added_e} expenses and {added_i} income entries ({skipped} skipped)'}
+
+    # One-shot import for the CLI / scripts: preview + commit.
+    def import_bank_statement(self,source:Any,currency:str='usd',account_id:Optional[int]=None,
+                              dayfirst:Optional[bool]=None,outflow_positive:Optional[bool]=None,
+                              rules:Optional[Dict[str,str]]=None) -> Dict[str,Any]:
+        preview = self.preview_bank_statement(source,dayfirst,outflow_positive,rules)
+        if not preview['success']:
+            return preview
+        name = os.path.basename(str(getattr(source,'name',source)))[:80] if not isinstance(source,(bytes,bytearray)) else 'bank statement'
+        cur = preview['meta']['currency'] or currency
+        result = self.commit_bank_import(preview['transactions'],cur,account_id,name)
+        result['meta'] = preview['meta']
+        return result
+
+    # ── Monthly report (budget vs actual + summary metrics) ──────────────────
+    def monthly_report(self,month:Optional[str]=None) -> Dict[str,Any]:
+        from datetime import datetime as _dt
+        month = month or _dt.now().strftime('%Y-%m')
+        data = self.open_file()['data']
+        return {'success':True,'data':_reports.monthly_report(data,month)}
+
+    def spending_trend(self,months:Optional[List[str]]=None) -> Dict[str,Any]:
+        data = self.open_file()['data']
+        return {'success':True,'data':_reports.trend(data,months)}
+
+    def export_monthly_report(self,month:Optional[str]=None,fmt:str='csv',filename:Optional[str]=None) -> Dict[str,Any]:
+        report = self.monthly_report(month)['data']
+        try:
+            payload = _reports.export_report(report,fmt)
+        except ValueError as e:
+            return {'success':False,'message':str(e)}
+        if filename:
+            with open(filename,'wb') as fh:
+                fh.write(payload)
+        where = f' to {filename}' if filename else ''
+        return {'success':True,'bytes':payload,'data':report,
+                'message':f"Exported {report['month']} report{where}"}
+
     # How each list should be laid out when exported: (field, heading).
     # Column ORDER and NAMES live here so a CSV and a PDF of the same list always
     # agree, and so internal fields (id) never reach a customer-facing file.
@@ -1269,7 +1372,7 @@ class ExpenseTracker():
         return {'success': True, 'message': f'Restored from {backup_file}'}
 
 
-__version__ = "v1.6"
+__version__ = "v1.7"
 
 # For getting web pages such as the GitHub page for this project
 import requests

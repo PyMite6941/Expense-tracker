@@ -1,4 +1,5 @@
 # These are used to upgrade the CLI menu a lot and make it better
+import os
 import questionary
 from rich.console import Console
 from rich.panel import Panel
@@ -63,6 +64,8 @@ class Run:
                     questionary.Choice('View total goal progress'),
                     questionary.Choice('Delete goals'),
                     questionary.Separator('--- Cool Functions ---'),
+                    questionary.Choice('Import a bank statement (.csv)'),
+                    questionary.Choice('Monthly report (budget vs actual)'),
                     questionary.Choice('Import data from a .csv file'),
                     questionary.Choice('Export data to a .csv file'),
                     questionary.Choice('Show data on graphs and charts'),
@@ -595,6 +598,58 @@ class Run:
                 results = tracker.delete_goals(goal_id)
                 color = 'green' if results['success'] else 'red'
                 console.print(f"[bold {color}]{results['message']}[/bold {color}].")
+            # Import a bank / card statement: auto-detect, categorize, skip duplicates
+            elif choice == 'Import a bank statement (.csv)':
+                filename = str(questionary.text("Path to the statement .csv?\n> ").ask() or '').strip().strip('"')
+                preview = tracker.preview_bank_statement(filename) if filename else {'success':False,'message':'No file given'}
+                if not preview['success']:
+                    console.print(f"[bold red]{preview['message']}[/bold red]")
+                else:
+                    meta = preview['meta']
+                    table = Table(title=preview['message'])
+                    for col in ('Date','Name','Amount','Category','Seen'):
+                        table.add_column(col)
+                    for t in preview['transactions'][:40]:
+                        color = 'red' if t['amount'] < 0 else 'green'
+                        table.add_row(t['date'],t['merchant'][:32],f"[{color}]{t['amount']:,.2f}[/{color}]",
+                                      t['category'],'yes' if t['duplicate'] else '')
+                    console.print(table)
+                    if len(preview['transactions']) > 40:
+                        console.print(f"... and {len(preview['transactions'])-40} more")
+                    if meta['ambiguous_dates']:
+                        console.print("[yellow]Dates were read month-first (MM/DD).[/yellow]")
+                    if meta['sign_guessed']:
+                        console.print("[yellow]Looks like a credit-card export: positive amounts treated as purchases.[/yellow]")
+                    if questionary.confirm("Import these (duplicates are skipped)?").ask():
+                        cur = meta['currency'] or (questionary.text("Currency code?", default='usd').ask() or 'usd')
+                        result = tracker.commit_bank_import(preview['transactions'],cur,
+                                                            source_name=os.path.basename(filename))
+                        console.print(f"[bold green]{result['message']}[/bold green]")
+            # Monthly budget vs actual + summary metrics, optional export
+            elif choice == 'Monthly report (budget vs actual)':
+                month = str(questionary.text("Month (YYYY-MM)?", default=datetime.now().strftime('%Y-%m')).ask() or '').strip()
+                r = tracker.monthly_report(month or None)['data']
+                console.print(Panel(
+                    f"Income {r['total_income']:,.2f}   Spent {r['total_spent']:,.2f}   Net {r['net']:,.2f}\n"
+                    f"Savings rate {'-' if r['savings_rate'] is None else str(r['savings_rate'])+'%'}   "
+                    f"Avg/day {r['avg_daily_spend']:,.2f}   "
+                    f"vs last month {'-' if r['spend_change_pct'] is None else format(r['spend_change_pct'],'+.1f')+'%'}",
+                    title=f"[bold cyan]{r['month']}[/bold cyan]"))
+                if r['budgets']:
+                    table = Table(title='Budget vs actual')
+                    for col in ('Category','Limit','Spent','Remaining','Used'):
+                        table.add_column(col)
+                    colors = {'over':'red','warning':'yellow','ok':'green'}
+                    for b in r['budgets']:
+                        c = colors[b['status']]
+                        table.add_row(b['category'],f"{b['limit']:,.2f}",f"{b['spent']:,.2f}",
+                                      f"{b['remaining']:,.2f}",f"[{c}]{b['pct_used']}%[/{c}]")
+                    console.print(table)
+                fmt = questionary.select("Export?",choices=['No','CSV','JSON']).ask()
+                if fmt in ('CSV','JSON'):
+                    out = f"report_{r['month']}.{fmt.lower()}"
+                    res = tracker.export_monthly_report(r['month'],fmt.lower(),out)
+                    console.print(f"[bold green]{res['message']}[/bold green]")
             # Get the function to import expenses from a .csv file
             elif choice == 'Import data from a .csv file':
                 filename = str(questionary.text("What is the file name (including .csv) ?\n> ").ask())

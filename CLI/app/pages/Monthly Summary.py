@@ -141,6 +141,44 @@ else:
 
 st.divider()
 
+# Budget vs actual for the month, from CLI/core/reports.py (same numbers the
+# CLI and the exported report use).
+_report = st.session_state.tracker.monthly_report(current_month)['data']
+st.subheader('Budget vs actual')
+if _report['budgets']:
+    _STATUS = {'over': '🔴 Over', 'warning': '🟡 Close', 'ok': '🟢 On track'}
+    _bdf = pd.DataFrame([{
+        'Category': b['category'], 'Limit': b['limit'], 'Spent': b['spent'],
+        'Remaining': b['remaining'], 'Used': min(b['pct_used'], 100.0),
+        '% used': b['pct_used'], 'Status': _STATUS[b['status']],
+    } for b in _report['budgets']])
+    st.dataframe(_bdf, hide_index=True, width='stretch', column_config={
+        'Limit': st.column_config.NumberColumn(format='%.2f'),
+        'Spent': st.column_config.NumberColumn(format='%.2f'),
+        'Remaining': st.column_config.NumberColumn(format='%.2f'),
+        'Used': st.column_config.ProgressColumn(min_value=0, max_value=100, format='%.0f%%'),
+        '% used': st.column_config.NumberColumn(format='%.1f%%'),
+    })
+    if _report['over_budget']:
+        st.error('Over budget: ' + ', '.join(_report['over_budget']))
+    if _report['unbudgeted_spent']:
+        st.caption(f"{_report['unbudgeted_spent']:,.2f} spent in categories with no budget.")
+else:
+    st.caption('No budgets yet — add them on the Overview page to track spending against limits.')
+
+_k = st.columns(3)
+_k[0].metric('Savings rate', '—' if _report['savings_rate'] is None else f"{_report['savings_rate']}%")
+_k[1].metric('Avg daily spend', f"{_report['avg_daily_spend']:,.2f}")
+_k[2].metric('Spend vs last month',
+             '—' if _report['spend_change_pct'] is None else f"{_report['spend_change_pct']:+.1f}%",
+             delta=None if _report['spend_change_pct'] is None else f"{_report['spend_change_pct']:+.1f}%",
+             delta_color='inverse')
+if _report['top_merchants']:
+    st.caption('Top merchants: ' + ' · '.join(
+        f"{t['merchant']} {t['spent']:,.2f}" for t in _report['top_merchants']))
+
+st.divider()
+
 # Monthly comparison (if previous months exist)
 all_months = sorted(list(set([expense['date'][:7] for expense in st.session_state.expenses] + [inc['date'][:7] for inc in st.session_state.income])), reverse=True)
 
@@ -197,3 +235,13 @@ with col2:
                            mime='application/pdf')
     else:
         st.caption(_pdf['message'])
+
+col3, col4 = st.columns(2)
+with col3:
+    st.download_button('Download monthly report (.csv)',
+                       data=st.session_state.tracker.export_monthly_report(current_month, 'csv')['bytes'],
+                       file_name=f'report_{current_month}.csv', mime='text/csv')
+with col4:
+    st.download_button('Download monthly report (.json)',
+                       data=st.session_state.tracker.export_monthly_report(current_month, 'json')['bytes'],
+                       file_name=f'report_{current_month}.json', mime='application/json')
