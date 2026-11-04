@@ -59,16 +59,19 @@ jobs:
         if: steps.changed.outputs.deploy == 'true'
         run: |
           if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::error::Repo secret VERCEL_TOKEN is not set (Settings → Secrets and variables → Actions)."
-            exit 1
+            echo "Repo secret VERCEL_TOKEN is not set — skipping deploy (add it at Settings → Secrets and variables → Actions)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+        id: token
 
       - name: Deploy
-        if: steps.changed.outputs.deploy == 'true'
+        if: steps.changed.outputs.deploy == 'true' && steps.token.outputs.skip != 'true'
         run: npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN"
 
       - name: Health check
-        if: steps.changed.outputs.deploy == 'true'
+        if: steps.changed.outputs.deploy == 'true' && steps.token.outputs.skip != 'true'
         run: |
           for i in 1 2 3; do
             curl -fsS -m 60 "${{ matrix.url }}/health" && exit 0
