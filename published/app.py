@@ -280,22 +280,16 @@ def page_dashboard():
         net = ti - te
         c3.metric('Net', f'${net:+,.2f}', delta_color='normal' if net >= 0 else 'inverse')
 
-        if st.session_state.budget:
-            st.subheader('Budget Status')
-            cat_spent: dict = {}
-            for e in me:
-                tag = e.get('tags', 'Other')
-                cat_spent[tag] = cat_spent.get(tag, 0) + e['price']
-            for b in st.session_state.budget:
-                spent = cat_spent.get(b['category'],0)
-                limit = float(b.get('amount', b.get('limit',0)))
-                pct   = min(spent/limit, 1.0) if limit > 0 else 0.0
-                cl, cb = st.columns([1,3])
-                cl.write(f"**{b['category']}**")
-                cl.caption(f"{spent:.2f} / {limit:.2f} {b.get('currency','USD').upper()}")
-                cb.progress(pct)
-                if spent > limit:   cb.error(f"Over by {spent-limit:.2f}", icon='🚨')
-                elif pct >= 0.9:    cb.warning(f"{int(pct*100)}% used", icon='⚠️')
+        # Same tiles/graph and cash-flow chart as the local app (CLI/app/charts.py).
+        from CLI.app.charts import render_budget, render_cash_flow
+        st.subheader('Budget Status')
+        render_budget(st.session_state.budget, st.session_state.expenses, cm,
+                      key='pub_budget_view')
+
+        st.divider()
+        st.subheader('Money In vs Out')
+        render_cash_flow(st.session_state.expenses, st.session_state.income,
+                         key='pub_cashflow')
 
         st.divider()
         st.subheader('Net-Worth Snapshot')

@@ -48,17 +48,89 @@ export function incomeVsExpenses(data, month = thisMonth()) {
   return { income, expenses, net: income - expenses, month }
 }
 
+// Mirrors CLI/core/reports.py budget_vs_actual: case-insensitive category
+// match, "warning" from 80% used, rows ordered over → warning → ok.
+export const BUDGET_WARN_AT = 80
 export function budgetUtilization(data, month = thisMonth()) {
   const spentByCat = {}
   for (const e of rowsInMonth(data.expenses, month)) {
-    spentByCat[e.tags] = (spentByCat[e.tags] || 0) + num(e.price)
+    const k = String(e.tags || '').trim().toLowerCase()
+    spentByCat[k] = (spentByCat[k] || 0) + num(e.price)
   }
+  const order = { over: 0, warning: 1, ok: 2 }
   return (data.budget || []).map((b) => {
-    const spent = spentByCat[b.category] || 0
+    const spent = Math.round((spentByCat[String(b.category || '').toLowerCase()] || 0) * 100) / 100
     const limit = num(b.amount)
-    const pct = limit > 0 ? (spent / limit) * 100 : 0
-    return { category: b.category, spent, limit, pct, currency: b.currency, over: spent > limit }
-  })
+    const pct = limit > 0 ? (spent / limit) * 100 : (spent ? 100 : 0)
+    const status = spent > limit ? 'over' : pct >= BUDGET_WARN_AT ? 'warning' : 'ok'
+    return {
+      category: b.category, spent, limit, pct, currency: b.currency,
+      remaining: Math.round((limit - spent) * 100) / 100, status, over: status === 'over',
+    }
+  }).sort((a, b) => order[a.status] - order[b.status] || b.pct - a.pct)
+}
+
+// ── Money in vs out over the last N days ────────────────────────────────────
+// Mirrors CLI/core/reports.py cash_flow_window. Dates are handled as UTC
+// calendar days so a timezone can't shift a transaction into the next bar.
+const DAY_MS = 86400000
+const toDay = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''))
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null
+}
+const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10)
+const fmt = (ms, opts) => new Date(ms).toLocaleDateString(undefined, { timeZone: 'UTC', ...opts })
+
+export const bucketFor = (days) => (days <= 31 ? 'day' : days <= 182 ? 'week' : 'month')
+
+export function todayISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function cashFlowWindow(data, days, endISO = todayISO()) {
+  days = Math.max(1, Math.floor(Number(days) || 1))
+  const end = toDay(endISO) ?? toDay(todayISO())
+  const start = end - (days - 1) * DAY_MS
+  const bucket = bucketFor(days)
+  const key = (ms) => (bucket === 'day' ? isoDay(ms)
+    : bucket === 'week' ? isoDay(start + Math.floor((ms - start) / (7 * DAY_MS)) * 7 * DAY_MS)
+      : isoDay(ms).slice(0, 7))
+
+  const rows = new Map()
+  for (let ms = start; ms <= end; ms += DAY_MS) {
+    const k = key(ms)
+    if (!rows.has(k)) {
+      const label = bucket === 'day' ? fmt(ms, { month: 'short', day: '2-digit' })
+        : bucket === 'week' ? `Wk of ${fmt(ms, { month: 'short', day: '2-digit' })}`
+          : fmt(ms, { month: 'short', year: 'numeric' })
+      rows.set(k, { period: k, label, moneyIn: 0, moneyOut: 0 })
+    }
+  }
+  let transactions = 0
+  const currencies = new Set()
+  const add = (items, field, amountKey) => {
+    for (const x of items || []) {
+      const ms = toDay(x.date)
+      if (ms == null || ms < start || ms > end) continue
+      rows.get(key(ms))[field] += num(x[amountKey])
+      transactions++
+      if (x.currency) currencies.add(String(x.currency).toLowerCase())
+    }
+  }
+  add(data.income, 'moneyIn', 'amount')
+  add(data.expenses, 'moneyOut', 'price')
+
+  const r2 = (v) => Math.round(v * 100) / 100
+  const out = [...rows.values()].map((r) => ({
+    ...r, moneyIn: r2(r.moneyIn), moneyOut: r2(r.moneyOut), net: r2(r.moneyIn - r.moneyOut),
+  }))
+  const totalIn = r2(out.reduce((t, r) => t + r.moneyIn, 0))
+  const totalOut = r2(out.reduce((t, r) => t + r.moneyOut, 0))
+  return {
+    start: isoDay(start), end: isoDay(end), days, bucket, rows: out,
+    totalIn, totalOut, net: r2(totalIn - totalOut), transactions, currencies: [...currencies].sort(),
+  }
 }
 
 export function savingsRateHistory(data, monthsBack = 6) {

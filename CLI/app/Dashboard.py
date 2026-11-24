@@ -226,30 +226,21 @@ with tab_dashboard:
                 'to light up the dashboard.', icon='👋')
 
     # ── Budget status ────────────────────────────────────────────────────────
-    # One source of truth. This used to render twice: a hand-rolled loop and then
-    # again via backend.analytics.budget_utilization, showing the same numbers.
-    if st.session_state.budget:
-        with st.container(border=True):
-            section('Budget status', f'Spend against each category limit for {_month}.')
-            _spent_by_cat = {}
-            for _e in _exp_rows:
-                _t = _e.get('tags', 'Other')
-                _spent_by_cat[_t] = _spent_by_cat.get(_t, 0) + float(_e.get('price', 0) or 0)
-            for _b in st.session_state.budget:
-                _used = _spent_by_cat.get(_b['category'], 0)
-                _limit = float(_b.get('amount', 0) or 0)
-                _pct = (_used / _limit) if _limit > 0 else 0.0
-                _cur = str(_b.get('currency', 'USD')).upper()
-                _lab, _bar = st.columns([1, 3])
-                with _lab:
-                    st.write(f"**{_b['category']}**")
-                    st.caption(f"{_used:,.2f} / {_limit:,.2f} {_cur}")
-                with _bar:
-                    st.progress(min(_pct, 1.0))
-                    if _used > _limit:
-                        st.error(f"Over by {_used - _limit:,.2f} {_cur}", icon='🚨')
-                    elif _pct >= 0.9:
-                        st.warning(f"{_pct * 100:.0f}% used — approaching limit", icon='⚠️')
+    # Squares (one tile per budget) or a Graph (spend bar over a limit track).
+    # Numbers come from CLI/core/reports.budget_vs_actual — the same function
+    # as the Monthly page — so category matching is case-insensitive here too.
+    from CLI.app.charts import render_budget, render_cash_flow
+    with st.container(border=True):
+        section('Budget status', f'Spend against each category limit for {_month}.')
+        render_budget(st.session_state.budget, st.session_state.expenses, _month,
+                      key='overview_budget_view')
+
+    # ── Money in vs out ──────────────────────────────────────────────────────
+    # Independent of the month picker: a rolling window of N days.
+    with st.container(border=True):
+        section('Money in vs out', 'Income and spending over the last N days.')
+        render_cash_flow(st.session_state.expenses, st.session_state.income,
+                         key='overview_cashflow')
 
     # ── Net-worth snapshot (Max only) ────────────────────────────────────────
     section('Net-Worth Snapshot', 'Assets minus liabilities, with cash flow and commitments.')

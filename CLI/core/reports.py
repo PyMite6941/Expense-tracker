@@ -14,7 +14,7 @@ import csv
 import io
 import json
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 try:
@@ -145,6 +145,91 @@ def monthly_report(data: Dict[str, Any], month: str,
             "date": largest.get("date", ""), "category": _category(largest)},
         "currencies": sorted({(x.get("currency") or "").lower()
                               for x in m_exp + m_inc} - {""}),
+    }
+
+
+def _as_date(v: Any) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(v or "")[:10])
+    except ValueError:
+        return None
+
+
+def _bucket_for(days: int) -> str:
+    """Daily bars up to a month, weekly up to ~6 months, monthly beyond.
+    Keeps the bar count readable (≤31 / ≤26 / one per month)."""
+    if days <= 31:
+        return "day"
+    if days <= 182:
+        return "week"
+    return "month"
+
+
+def cash_flow_window(expenses: List[Dict[str, Any]], income: List[Dict[str, Any]],
+                     days: int, end: Optional[date] = None,
+                     bucket: str = "auto") -> Dict[str, Any]:
+    """Money in vs money out over the ``days`` days ending on ``end`` (inclusive).
+
+    Every bucket in the window is returned, including empty ones, so a chart
+    shows quiet days as gaps rather than silently skipping them. Weeks are
+    7-day blocks counted from the window's first day (the last may be shorter);
+    months are calendar months clipped to the window.
+    """
+    days = max(1, int(days))
+    end = end or date.today()
+    start = end - timedelta(days=days - 1)
+    if bucket == "auto":
+        bucket = _bucket_for(days)
+    if bucket not in ("day", "week", "month"):
+        raise ValueError("bucket must be 'auto', 'day', 'week' or 'month'")
+
+    def key(d: date) -> str:
+        if bucket == "day":
+            return d.isoformat()
+        if bucket == "week":
+            return (start + timedelta(days=((d - start).days // 7) * 7)).isoformat()
+        return d.strftime("%Y-%m")
+
+    # Pre-seed every bucket in order.
+    rows: Dict[str, Dict[str, Any]] = {}
+    d = start
+    while d <= end:
+        k = key(d)
+        if k not in rows:
+            label = (d.strftime("%b %d") if bucket == "day"
+                     else f"Wk of {d.strftime('%b %d')}" if bucket == "week"
+                     else d.strftime("%b %Y"))
+            rows[k] = {"period": k, "label": label, "money_in": 0.0, "money_out": 0.0}
+        d += timedelta(days=1)
+
+    for items, field, amount_key in ((income, "money_in", "amount"),
+                                     (expenses, "money_out", "price")):
+        for x in items or []:
+            xd = _as_date(x.get("date"))
+            if xd is not None and start <= xd <= end:
+                rows[key(xd)][field] += _f(x.get(amount_key))
+
+    out = []
+    for r in rows.values():
+        r["money_in"] = round(r["money_in"], 2)
+        r["money_out"] = round(r["money_out"], 2)
+        r["net"] = round(r["money_in"] - r["money_out"], 2)
+        out.append(r)
+    total_in = round(sum(r["money_in"] for r in out), 2)
+    total_out = round(sum(r["money_out"] for r in out), 2)
+    in_window = [x for x in list(expenses or []) + list(income or [])
+                 if (xd := _as_date(x.get("date"))) is not None and start <= xd <= end]
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days": days,
+        "bucket": bucket,
+        "rows": out,
+        "total_in": total_in,
+        "total_out": total_out,
+        "net": round(total_in - total_out, 2),
+        "transactions": len(in_window),
+        "currencies": sorted({(x.get("currency") or "").lower() for x in in_window} - {""}),
     }
 
 
