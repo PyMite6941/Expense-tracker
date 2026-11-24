@@ -1,14 +1,20 @@
-"""CLI/app/secrets_env.py: Streamlit secrets → environment variables."""
-import os
+"""CLI/app/secrets_env.py: Streamlit secrets → environment variables.
 
-import streamlit
+Uses a stand-in `streamlit` module, so it runs in CI's lean install (which
+does not include Streamlit) as well as locally.
+"""
+import os
+import sys
+import types
 
 from CLI.app import secrets_env
 
 
 def _run(monkeypatch, secrets):
+    fake = types.ModuleType("streamlit")
+    fake.secrets = secrets
+    monkeypatch.setitem(sys.modules, "streamlit", fake)
     monkeypatch.setattr(secrets_env, "_done", False)
-    monkeypatch.setattr(streamlit, "secrets", secrets, raising=False)
     return secrets_env.load_streamlit_secrets()
 
 
