@@ -38,7 +38,9 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:8501,http://127.0.0.1:8501,"
-    "https://grid-store.pages.dev,https://web-store-4la.pages.dev",
+    "https://grid-store.pages.dev,https://web-store-4la.pages.dev,"
+    # The browser app (web/) verifies licence keys against /validate.
+    "https://finance-kit-web.vercel.app",
 ).split(",")
 
 # SECURITY: read X-Forwarded-For from the RIGHT. A client can send its own XFF

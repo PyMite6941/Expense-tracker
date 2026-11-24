@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore, actions } from '../lib/store.js'
-import { parseCode, PURCHASE_URL, TIERS } from '../lib/license.js'
+import { parseCode, verifyCode, PURCHASE_URL, TIERS } from '../lib/license.js'
 
 function PlanBadge({ tier }) {
   return <span className={`badge ${tier}`}>{TIERS[tier]?.label || 'Free'} plan</span>
@@ -10,8 +10,9 @@ export default function LicensePanel({ notify }) {
   const plan = useStore((s) => s.plan)
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
+  const [checking, setChecking] = useState(false)
 
-  function activate(e) {
+  async function activate(e) {
     e.preventDefault()
     setError('')
     const parsed = parseCode(code)
@@ -23,9 +24,22 @@ export default function LicensePanel({ notify }) {
       setError('This code has expired. Renew your plan below.')
       return
     }
-    actions.setPlan(parsed)
-    setCode('')
-    notify?.(`${TIERS[parsed.tier].label} plan activated`)
+    // Fail closed: nothing unlocks until the licence server confirms the code.
+    setChecking(true)
+    try {
+      const verified = await verifyCode(code)
+      if (!verified) {
+        setError('This code was not issued by Finance Kit, or it has been altered.')
+        return
+      }
+      actions.setPlan(verified)
+      setCode('')
+      notify?.(`${TIERS[verified.tier].label} plan activated`)
+    } catch (err) {
+      setError(`${err.message} Check your connection and try again.`)
+    } finally {
+      setChecking(false)
+    }
   }
 
   function deactivate() {
@@ -65,7 +79,7 @@ export default function LicensePanel({ notify }) {
                   placeholder="eyJhbGciOi…  (paste the code from your purchase email)"
                   spellCheck={false}
                 />
-                <button type="submit" className="primary">Activate</button>
+                <button type="submit" className="primary" disabled={checking}>{checking ? 'Checking…' : 'Activate'}</button>
               </div>
             </div>
             {error && <div className="hint" style={{ color: 'var(--danger)' }}>{error}</div>}

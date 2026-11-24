@@ -60,6 +60,46 @@ export function parseCode(code) {
   }
 }
 
+// ── Server-side verification ────────────────────────────────────────────────
+// parseCode() only DECODES: a hand-made token with "tier":"max" would pass it.
+// The signature can only be checked where the secret lives, so every code is
+// sent to the auth service's /validate, and the plan is taken from ITS answer
+// (tier/features as signed), never from the decoded payload.
+export const AUTH_URL =
+  (import.meta.env.VITE_AUTH_URL || 'https://finance-kit-auth.vercel.app').replace(/\/+$/, '')
+
+export class LicenseCheckUnavailable extends Error {}
+
+/** Resolves to a plan, or null if the server says the code is not genuine.
+ *  Throws LicenseCheckUnavailable when the server can't be reached. */
+export async function verifyCode(code) {
+  const token = (code || '').trim()
+  if (!parseCode(token)) return null
+  let res
+  try {
+    res = await fetch(`${AUTH_URL}/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+  } catch {
+    throw new LicenseCheckUnavailable('Could not reach the licence server.')
+  }
+  if (res.status === 401 || res.status === 403 || res.status === 400) return null
+  if (!res.ok) throw new LicenseCheckUnavailable(`Licence server error (${res.status}).`)
+  const body = await res.json().catch(() => ({}))
+  const tier = String(body.tier || '').toLowerCase()
+  if (!body.valid || !TIERS[tier]) return null
+  return {
+    tier,
+    features: Array.isArray(body.features) ? body.features : [],
+    code: token,
+    sub: body.email || null,
+    exp: body.exp || null,
+    verifiedAt: Date.now(),
+  }
+}
+
 export const FREE_PLAN = { tier: 'free', features: [], code: null }
 
 export function hasFeature(plan, feature) {

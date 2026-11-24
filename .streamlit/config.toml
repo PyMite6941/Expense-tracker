@@ -13,3 +13,11 @@ showErrorDetails = false
 
 [browser]
 gatherUsageStats = false
+
+# Hardening for the public deployment (harmless locally).
+[server]
+# Bank statements and backups are kilobytes; the 200 MB default only invites
+# memory-exhaustion uploads on a shared host.
+maxUploadSize = 10
+enableXsrfProtection = true
+enableCORS = true

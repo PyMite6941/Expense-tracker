@@ -232,9 +232,10 @@ def page_home():
 2. **📅 Monthly Summary** — Charts and totals for any month.
 3. **🔄 Recurring** — Detect and manage recurring transactions.
 4. **⭐ Pro Features** — Analytics, AI categorization, and health score.
-5. **📱 Phone Connect** *(Pro)* — Control the tracker via Telegram or Discord.
-6. **📧 Email Import** *(Max)* — Auto-import receipts from your inbox.
-7. **⚙️ Settings** — Activate your license key and manage data.
+5. **⚙️ Settings** — Activate your license key and manage data.
+
+Phone Connect (Telegram/Discord) and Email Import run in the self-hosted app,
+so their credentials stay on your own machine.
 
 > Data lives in your **browser session** — export it regularly to save it.
                 """
@@ -1642,8 +1643,9 @@ pg = st.navigation([
     st.Page(page_recurring, title='Recurring',       icon='🔄'),
     st.Page(page_pro,       title='Pro Features',    icon='⭐'),
     st.Page(page_max,       title='Max Features',    icon='👑'),
-    st.Page(page_phone,     title='Phone Connect',   icon='📱'),
-    st.Page(page_email,     title='Email Import',    icon='📧'),
+    # Phone Connect and Email Import are NOT served from this public build:
+    # they save bot tokens and email app passwords to one .bot_config.json
+    # shared by every visitor. They run in the self-hosted app (CLI/app/main.py).
     st.Page(page_settings,  title='Settings',        icon='⚙️'),
 ])
 pg.run()

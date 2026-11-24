@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react'
-import { useStore, downloadBundle } from './lib/store.js'
+import { useState, useCallback, useEffect } from 'react'
+import { useStore, downloadBundle, actions } from './lib/store.js'
 import { COLLECTIONS, COLLECTION_KEYS } from './lib/collections.js'
-import { TIERS } from './lib/license.js'
+import { TIERS, verifyCode } from './lib/license.js'
 import Dashboard from './components/Dashboard.jsx'
 import DataTable from './components/DataTable.jsx'
 import DataPanel from './components/DataPanel.jsx'
@@ -27,6 +27,27 @@ export default function App() {
     window.clearTimeout(notify._t)
     notify._t = window.setTimeout(() => setToast(''), 2600)
   }, [])
+
+  // A plan can also arrive from localStorage or an imported backup, neither of
+  // which went through the Activate check. Re-verify any paid plan with the
+  // licence server; drop it if the server says it isn't genuine. If the server
+  // is merely unreachable, keep it — offline use shouldn't lose a real plan.
+  useEffect(() => {
+    if (!plan.code || plan.tier === 'free') return
+    let cancelled = false
+    verifyCode(plan.code)
+      .then((verified) => {
+        if (cancelled) return
+        if (!verified) {
+          actions.clearPlan()
+          notify('Your plan could not be verified and was removed.')
+        } else if (verified.tier !== plan.tier || verified.features.join() !== (plan.features || []).join()) {
+          actions.setPlan(verified)
+        }
+      })
+      .catch(() => { /* offline: keep the plan */ })
+    return () => { cancelled = true }
+  }, [plan.code]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const current = NAV.find((n) => n.key === view) || NAV[0]
 

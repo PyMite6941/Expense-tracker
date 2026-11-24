@@ -467,6 +467,10 @@ def _pro_page():
 
 def section(title: str, subtitle: str = "") -> None:
     """Consistent section heading."""
+    # Escaped: callers pass data-derived text (months from imported dates), and
+    # this is rendered as raw HTML. A crafted bank CSV must not inject markup.
+    import html as _html
+    title, subtitle = _html.escape(str(title)), _html.escape(str(subtitle or ""))
     sub = f'<div class="s">{subtitle}</div>' if subtitle else ""
     st.markdown(
         f'<div class="grid-section"><div class="t">{title}</div>{sub}</div>',

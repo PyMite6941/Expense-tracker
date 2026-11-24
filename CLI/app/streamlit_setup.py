@@ -76,10 +76,33 @@ def session_data_file() -> str:
     path = st.session_state.get("_session_data_file")
     if not path or not os.path.exists(path):
         import tempfile
+        _sweep_stale_session_files(tempfile.gettempdir())
+        # mkstemp creates the file 0600 with an unguessable name.
         fd, path = tempfile.mkstemp(suffix=".json", prefix="fk_session_")
         os.close(fd)
         st.session_state["_session_data_file"] = path
     return path
+
+
+SESSION_FILE_MAX_AGE = 12 * 3600   # seconds since the file was last written
+
+
+def _sweep_stale_session_files(tmpdir: str) -> None:
+    """Delete other visitors' abandoned session files.
+
+    Streamlit has no "session ended" hook, so without this every visitor's
+    finances would sit in /tmp until the container restarts. A file untouched
+    for 12 hours belongs to a session that is long gone.
+    """
+    import glob
+    import time
+    cutoff = time.time() - SESSION_FILE_MAX_AGE
+    for f in glob.glob(os.path.join(tmpdir, "fk_session_*.json")):
+        try:
+            if os.path.getmtime(f) < cutoff:
+                os.remove(f)
+        except OSError:
+            pass
 
 
 def _session_tracker() -> ExpenseTracker:
