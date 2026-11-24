@@ -1421,7 +1421,7 @@ class ExpenseTracker():
         return {'success': True, 'message': f'Restored from {backup_file}'}
 
 
-__version__ = "v1.8"
+__version__ = "v1.9"
 
 # For getting web pages such as the GitHub page for this project
 import requests

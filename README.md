@@ -8,10 +8,25 @@ Personal finance app with a CLI mode and a full Streamlit web UI. Tracks expense
 
 ---
 
+## Free vs hosted
+
+| | **Free** — runs on your computer | **Hosted** — paid |
+|---|---|---|
+| Where it runs | Your machine (`python run.py`, or the `web/` app in your browser) | Our servers — open it from any device |
+| Your data | A `data.json` on your disk / your browser | Your own private cloud workspace (Postgres), shared with your team if you like |
+| Account | None | Sign in; access is linked to the email you buy with |
+| Core features (expenses, income, budgets, goals, bank import, reports, charts) | ✅ all of them | ✅ |
+| AI features (categorisation, coach, forecasts) | Pro / Max licence key | Included in the plan |
+
+You only pay when we provide the compute and storage. The public demo site is the hosted app with nothing saved — try it, then either download it (free) or buy hosting at [grid-store.pages.dev](https://grid-store.pages.dev).
+
+---
+
 ## Versions
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v1.9 | November 2026 | **Free vs hosted made explicit** — the public site is a not-saved demo that points to the two real options: run it free on your own computer, or pay for hosting. It switches to paid hosted workspaces by itself once a database and sign-in are configured (`streamlit_app.py`). New public `web/` deploy with strict security headers; licence keys in `web/` are verified by the server instead of only decoded |
 | v1.8 | November 2026 | **Budget squares or graph** — the Overview budget panel switches between tiles (spent, % used, left/over, status) and a bar chart of spend over each limit; category matching is now case-insensitive, same as the Monthly page. **Money in vs out** — a bar chart of income vs spending over the last 7/14/30/90/180/365 or any custom number of days (daily, weekly or monthly bars by window size). Both in the local app, the published app and the `web/` client |
 | v1.7 | November 2026 | **Bank statement import** — drop in any bank or card CSV: header row, Amount vs Debit/Credit columns, US/UK/EU date and number formats and card-style signs are detected; merchant names are cleaned; transactions are categorized by your rules, then by how you tagged that merchant before, then by built-in keywords; re-importing the same file adds nothing. **Budget vs actual** on the Monthly page with savings rate, month-over-month change and top merchants, exportable as CSV/JSON (also in the CLI). `pytest` suite (`tests/`) run in CI |
 | v1.6 | September 2026 | **Accounts** — checking / savings / online savings / MMA / CD / credit card, each with the fields that type actually has; expenses and income charge to an account and balances are derived from them. **Privacy** — the pure-maths analytics (forecast, anomalies, net worth) now run on your machine instead of being POSTed to Cloud Run; only the AI query still transmits, and only when you press Ask. **Encryption** — TLS enforced on every connection, hosted rows encrypted at rest (AES-256-GCM), stored credentials encrypted. **Auth** — secrets fail closed, `/issue` no longer public when `ISSUE_SECRET` is unset, `X-Forwarded-For` read from the right so the device cap is enforceable, licence keys no longer written to logs, python-jose replaced with PyJWT. Renamed from GRID to Finance Kit; `st.navigation` router with real URLs; React (`web/`) client |

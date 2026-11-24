@@ -319,7 +319,9 @@ def render_header(mode: str = None) -> None:
     if mode is None and not st.session_state.get("org_id"):
         try:
             from CLI.app.config import STORAGE_MODE
-            if STORAGE_MODE == "session":
+            if STORAGE_MODE == "session" or (
+                    STORAGE_MODE == "hosted" and "tracker" in st.session_state):
+                # hosted + tracker built + no org_id = fell back to the demo
                 mode = "session"
         except Exception:
             pass
@@ -379,27 +381,32 @@ def account_banner() -> None:
     falls back to local storage. This turns them into a visible, actionable
     prompt instead of silent confusion about where the data went.
     """
-    if st.session_state.get("needs_account"):
-        st.warning(
-            "You're on the public site but no account is saved, so you're "
-            "seeing **local** data. Save an account in Settings to load your "
-            "organization's workspace.",
-            icon="🔐",
-        )
-    elif st.session_state.get("needs_entitlement"):
-        st.warning(
-            "This account has no active hosted subscription — showing **local** "
-            "data. Your entitlement is linked to the email you buy with.",
-            icon="🔑",
-        )
-        _b1, _b2, _ = st.columns([1, 1, 3])
+    needs_account = st.session_state.get("needs_account")
+    needs_ent = st.session_state.get("needs_entitlement")
+    demo = needs_account or needs_ent or st.session_state.get("storage_error")
+    if not demo:
+        try:
+            from CLI.app.config import SESSION_MODE
+            demo = SESSION_MODE
+        except Exception:
+            demo = False
+    if demo:
+        if needs_ent:
+            st.warning(
+                "This account has no hosted plan yet, so this is the **demo** — "
+                "nothing you enter is saved. Hosted access is linked to the "
+                "email you buy with.", icon="🔑")
+        else:
+            st.info(
+                "**Demo — nothing is saved.** Finance Kit is free when it runs "
+                "on your own computer: your data stays on your disk, no account. "
+                "Want us to host it and keep your data in the cloud? That's the "
+                "paid plan.", icon="💡")
+        _b1, _b2, _ = st.columns([1.2, 1.2, 2.6])
         with _b1:
-            st.link_button("Get hosted access →", _store_url(), type="primary")
+            st.link_button("Run it free on your computer", _self_host_url())
         with _b2:
-            try:
-                st.page_link("pages/Settings.py", label="Settings", icon="⚙️")
-            except Exception:
-                pass
+            st.link_button("Get hosted access →", _store_url(), type="primary")
     if st.session_state.get("storage_error"):
         st.error(f"Could not reach the hosted database: "
                  f"{st.session_state['storage_error']}", icon="⚠️")
@@ -445,6 +452,14 @@ def _license_url() -> str:
         return LICENSE_STORE_URL
     except Exception:
         return "https://grid-store.pages.dev/projects"
+
+
+def _self_host_url() -> str:
+    try:
+        from CLI.app.config import SELF_HOST_URL
+        return SELF_HOST_URL
+    except Exception:
+        return "https://github.com/PyMite6941/Expense-tracker"
 
 
 def _store_url() -> str:

@@ -54,3 +54,7 @@ DATABASE_URL = os.getenv("ET_DATABASE_URL") or os.getenv("DATABASE_URL")
 # ---------------------------------------------------------------------------
 STORE_URL = os.getenv("GRID_STORE_URL", "https://grid-store.pages.dev")
 LICENSE_STORE_URL = os.getenv("GRID_LICENSE_URL", f"{STORE_URL}/projects")
+# The free plan: download and run it on your own computer (your compute, your
+# disk, no account). Hosting it for you is the paid plan.
+SELF_HOST_URL = os.getenv("SELF_HOST_URL",
+                          "https://github.com/PyMite6941/Expense-tracker#setup")
