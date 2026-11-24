@@ -95,13 +95,13 @@ streamlit run CLI/app/main.py
 `CLI/app/config.py` controls which backend is used:
 
 ```python
-BACKEND_MODE = "cloud"   # uses Google Cloud Run (default)
+BACKEND_MODE = "cloud"   # uses the hosted services on Vercel (default)
 # BACKEND_MODE = "local" # uses http://localhost:8000 and http://localhost:8001
 ```
 
-Cloud Run URLs:
-- Analytics backend: `https://expense-backend-690527435721.us-central1.run.app`
-- Auth service: `https://auth-service-690527435721.us-central1.run.app`
+Hosted service URLs (Vercel, since November 2026):
+- Analytics backend: `https://finance-kit-backend.vercel.app`
+- Auth service: `https://finance-kit-auth.vercel.app`
 
 To run locally:
 
