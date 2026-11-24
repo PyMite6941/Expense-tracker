@@ -316,6 +316,13 @@ def render_header(mode: str = None) -> None:
     ephemeral (the published demo app writes to a tempfile), so users are not
     told "Local" — which implies a file that persists — when nothing is kept.
     """
+    if mode is None and not st.session_state.get("org_id"):
+        try:
+            from CLI.app.config import STORAGE_MODE
+            if STORAGE_MODE == "session":
+                mode = "session"
+        except Exception:
+            pass
     if mode == "session":
         label, cls = "Demo · not saved", "session"
     else:

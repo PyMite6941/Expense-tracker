@@ -1,0 +1,101 @@
+# Wake the hosted Streamlit app (and the two Vercel services) on demand.
+#
+# Streamlit Community Cloud puts an app to sleep after a period without
+# visitors; the next visitor sees "Zzzz" and a "Yes, get this app back up!"
+# button. This opens the app in a headless browser, presses that button if it
+# is there, and waits until the app has actually rendered.
+#
+# Run it:  GitHub → Actions → "Wake Streamlit app" → Run workflow
+#          (works from the GitHub mobile app), or:  gh workflow run wake-streamlit.yml
+#
+# The app URL comes from the repository VARIABLE (not secret) STREAMLIT_APP_URL:
+#   gh variable set STREAMLIT_APP_URL --body "https://<your-app>.streamlit.app"
+#
+# Manual only, on purpose: it wakes the app when YOU want it, it is not a
+# keep-alive pinger working around the host's sleep policy.
+name: Wake Streamlit app
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "App URL (blank = the STREAMLIT_APP_URL repo variable)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      APP_URL: ${{ inputs.url || vars.STREAMLIT_APP_URL }}
+    steps:
+      - name: Wake the Vercel services
+        run: |
+          for u in https://finance-kit-backend.vercel.app/health https://finance-kit-auth.vercel.app/health; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$u" || true)
+            echo "$u -> $code"
+          done
+
+      - name: Check the app URL is set
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::No app URL. Set it once with: gh variable set STREAMLIT_APP_URL --body https://<your-app>.streamlit.app"
+            exit 1
+          fi
+          echo "Waking $APP_URL"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          pip install playwright==1.49.1
+          python -m playwright install --with-deps chromium
+
+      - name: Open the app and press the wake button
+        shell: python
+        run: |
+          import os, re, sys, time
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["APP_URL"]
+          with sync_playwright() as p:
+              page = p.chromium.launch().new_page()
+              page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+              page.wait_for_timeout(5_000)
+
+              wake = page.get_by_role("button", name=re.compile("get this app back up", re.I))
+              if wake.count():
+                  print("App was asleep - pressing the wake button.")
+                  wake.first.click()
+              else:
+                  print("No wake button - the app was already awake (or booting).")
+
+              # The app renders inside an iframe on *.streamlit.app; look in
+              # every frame for the app's own header text.
+              deadline = time.time() + 8 * 60
+              while time.time() < deadline:
+                  for frame in page.frames:
+                      try:
+                          if frame.get_by_text("Finance Kit").count():
+                              print(f"Awake: {url}")
+                              sys.exit(0)
+                      except Exception:
+                          pass
+                  page.wait_for_timeout(10_000)
+              page.screenshot(path="wake-failure.png", full_page=True)
+              print("::error::The app did not finish loading within 8 minutes.")
+              sys.exit(1)
+
+      - name: Upload a screenshot if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wake-failure
+          path: wake-failure.png
+          if-no-files-found: ignore

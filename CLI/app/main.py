@@ -54,6 +54,13 @@ PAGE_SPECS = [
     ("pages/Settings.py",            "Settings",  "⚙️", "settings"),
 ]
 
+# Phone Connect and Email Import configure long-running bots and inbox access
+# that store credentials in a server-wide .bot_config.json. On a public deploy
+# that file would be shared by every visitor, so those pages are self-host only.
+from CLI.app.config import PUBLIC_DEPLOY  # noqa: E402
+if PUBLIC_DEPLOY:
+    PAGE_SPECS = [p for p in PAGE_SPECS if p[3] not in ("phone", "import")]
+
 _here = os.path.dirname(os.path.abspath(__file__))
 pages = [
     st.Page(os.path.join(_here, script), title=title, icon=icon,

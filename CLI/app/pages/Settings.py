@@ -20,8 +20,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 import streamlit as st
 
 from CLI.app.theme import page_setup, section, render_sidebar
-from CLI.app.streamlit_setup import init_st, sync_data
-from CLI.app.config import DATABASE_URL, STORE_URL, LICENSE_STORE_URL
+from CLI.app.streamlit_setup import init_st, sync_data, session_data_file
+from CLI.app.config import DATABASE_URL, STORE_URL, LICENSE_STORE_URL, PUBLIC_DEPLOY
+
+# On a public deploy "local" means this browser session's private file, never
+# the server's shared data.json.
+_LOCAL_FILE = session_data_file if PUBLIC_DEPLOY else (lambda: "data.json")
 from CLI.core.core_stuff import ExpenseTracker
 from CLI.core.storage import JsonStore, PostgresStore, normalize_blob
 from CLI.core.tenancy import (AuthUser, NoEntitlementError, claim_and_resolve_org,
@@ -115,7 +119,9 @@ with tab_mode:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Local** — free, self-hosted")
-        st.caption("Stored in `data.json` on this machine. Works offline. No account.")
+        st.caption("Kept in this browser session only — export a backup to keep it."
+                   if PUBLIC_DEPLOY else
+                   "Stored in `data.json` on this machine. Works offline. No account.")
         st.write("✅ Active" if not hosted else "○ Inactive")
     with c2:
         st.markdown("**Public site** — hosted")
@@ -187,7 +193,7 @@ with tab_mode:
         if st.button("Switch to local", type="primary"):
             try:
                 cloud_loaded = _tracker().open_file() if copy_down else None
-                local = ExpenseTracker(store=JsonStore("data.json"))
+                local = ExpenseTracker(store=JsonStore(_LOCAL_FILE()))
                 if copy_down and cloud_loaded:
                     # Bring the accounts down with the lists, not just the lists.
                     local.write_file(cloud_loaded["data"],

@@ -20,10 +20,23 @@ LOCAL_AUTH_URL     = "http://localhost:8001"
 # Set STORAGE_MODE=hosted in the environment on the servers Matt hosts; leave it
 # alone for self-hosted installs.
 # ---------------------------------------------------------------------------
+#   "session"          : a private temp file per browser session, deleted with
+#                        it. For a PUBLIC deployment (Streamlit Community
+#                        Cloud): visitors get the full app without ever
+#                        sharing one data.json. streamlit_app.py defaults to it.
+# ---------------------------------------------------------------------------
 import os
+
+# On Streamlit Community Cloud the settings below arrive via the Secrets panel.
+from CLI.app.secrets_env import load_streamlit_secrets
+load_streamlit_secrets()
 
 STORAGE_MODE = os.getenv("STORAGE_MODE", "local").strip().lower()
 HOSTED_MODE  = STORAGE_MODE == "hosted"
+SESSION_MODE = STORAGE_MODE == "session"
+# Anything but "local" runs on a server other people reach, so nothing may fall
+# back to the shared data.json there.
+PUBLIC_DEPLOY = STORAGE_MODE != "local"
 
 # Neon connection string. Never hardcode it — read from the environment.
 DATABASE_URL = os.getenv("ET_DATABASE_URL") or os.getenv("DATABASE_URL")

@@ -11,7 +11,7 @@ from CLI.app.config import (
     BACKEND_MODE,
     CLOUD_BACKEND_URL, CLOUD_AUTH_URL,
     LOCAL_BACKEND_URL, LOCAL_AUTH_URL,
-    HOSTED_MODE, DATABASE_URL,
+    HOSTED_MODE, SESSION_MODE, DATABASE_URL,
 )
 from CLI.core.tenancy import AuthUser, NoEntitlementError, make_store, get_role
 
@@ -67,6 +67,25 @@ def current_account():
     return None
 
 
+def session_data_file() -> str:
+    """This browser session's private data file (created on first use).
+
+    Lives in the OS temp dir, never in the repo, and is keyed to the Streamlit
+    session, so two visitors can never land on the same file.
+    """
+    path = st.session_state.get("_session_data_file")
+    if not path or not os.path.exists(path):
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".json", prefix="fk_session_")
+        os.close(fd)
+        st.session_state["_session_data_file"] = path
+    return path
+
+
+def _session_tracker() -> ExpenseTracker:
+    return ExpenseTracker(filename=session_data_file())
+
+
 def _build_tracker():
     """Construct the ExpenseTracker with the right storage backend.
 
@@ -79,21 +98,24 @@ def _build_tracker():
     a prompt, so the app is always usable and the user can self-serve.
     """
     if not HOSTED_MODE:
-        return ExpenseTracker()
+        return _session_tracker() if SESSION_MODE else ExpenseTracker()
 
+    # On a hosted server the fallbacks below must NOT be data.json: that file is
+    # shared by every visitor, so one person's entries would show up for the
+    # next. Each falls back to a private per-session file instead.
     user = current_account()
     if user is None:
         st.session_state["needs_account"] = True
-        return ExpenseTracker()
+        return _session_tracker()
 
     try:
         store = make_store(user=user, dsn=DATABASE_URL, hosted=True)
     except NoEntitlementError:
         st.session_state["needs_entitlement"] = True
-        return ExpenseTracker()
+        return _session_tracker()
     except Exception as exc:
         st.session_state["storage_error"] = str(exc)
-        return ExpenseTracker()
+        return _session_tracker()
 
     # Viewers are read-only; pages should check st.session_state.role.
     st.session_state.pop("needs_account", None)
