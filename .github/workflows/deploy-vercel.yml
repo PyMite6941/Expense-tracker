@@ -11,6 +11,7 @@ on:
     paths:
       - "backend/**"
       - "auth-service/**"
+      - "web/**"
       - ".vercelignore"
       - ".github/workflows/deploy-vercel.yml"
   workflow_dispatch:
@@ -33,10 +34,20 @@ jobs:
             dir: backend
             project: prj_HGrsTHddRfstm0xc2XPmRChxodC3   # finance-kit-backend
             url: https://finance-kit-backend.vercel.app
+            workdir: .            # root .vercelignore allowlists the service dir
+            health: /health
           - name: auth
             dir: auth-service
             project: prj_O4vYnktteCYCRQDBq7cm7mABYc0G   # finance-kit-auth
             url: https://finance-kit-auth.vercel.app
+            workdir: .
+            health: /health
+          - name: web
+            dir: web
+            project: prj_m824qrJhOwtPBcjtU6YvjHL1QE9q   # finance-kit-web
+            url: https://finance-kit-web.vercel.app
+            workdir: web          # static Vite app; deployed from its own dir
+            health: /
     env:
       VERCEL_PROJECT_ID: ${{ matrix.project }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -68,13 +79,14 @@ jobs:
 
       - name: Deploy
         if: steps.changed.outputs.deploy == 'true' && steps.token.outputs.skip != 'true'
+        working-directory: ${{ matrix.workdir }}
         run: npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN"
 
       - name: Health check
         if: steps.changed.outputs.deploy == 'true' && steps.token.outputs.skip != 'true'
         run: |
           for i in 1 2 3; do
-            curl -fsS -m 60 "${{ matrix.url }}/health" && exit 0
+            curl -fsS -m 60 -o /dev/null "${{ matrix.url }}${{ matrix.health }}" && exit 0
             sleep 10
           done
           exit 1

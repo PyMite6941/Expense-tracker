@@ -24,7 +24,8 @@ jobs:
           down=()
           for url in \
             https://finance-kit-backend.vercel.app/health \
-            https://finance-kit-auth.vercel.app/health; do
+            https://finance-kit-auth.vercel.app/health \
+            https://finance-kit-web.vercel.app/; do
             # Cold starts can take a while; retry before calling it down.
             ok=0
             for attempt in 1 2 3; do
